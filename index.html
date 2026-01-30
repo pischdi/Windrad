@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Windrad AR - Neuhausen/Spree</title>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+        
+        /* Welcome Screen */
+        .welcome-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #1a5f3b 0%, #2e7d4e 100%);
+            z-index: 10000;
+            padding: 0.5rem;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .welcome-screen.hidden {
+            display: none;
+        }
+        
+        .welcome-box {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            max-width: 500px;
+            width: 100%;
+            margin: 1rem auto;
+            min-height: auto;
+        }
+        
+        .welcome-box h1 {
+            color: #1a5f3b;
+            margin-bottom: 0.5rem;
+            font-size: 1.5rem;
+        }
+        
+        .welcome-box p {
+            color: #666;
+            margin-bottom: 1rem;
+            line-height: 1.5;
+        }
+        
+        @media (max-width: 768px) {
+            .welcome-box {
+                padding: 1rem;
+                margin: 0.5rem auto;
+            }
+            
+            .welcome-box h1 {
+                font-size: 1.3rem;
+            }
+            
+            .welcome-box p {
+                font-size: 0.9rem;
+            }
+        }
+        
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+        
+        .btn-primary {
+            background: #1a5f3b;
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .stats-box {
+            background: #e8f5e9;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }
+        
+        .stats-box strong {
+            color: #1a5f3b;
+        }
+        
+        .filter-section {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #ddd;
+        }
+        
+        .filter-option {
+            display: flex;
+            align-items: center;
+            padding: 0.8rem;
+            background: #f5f5f5;
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .filter-option:hover {
+            background: #e8f5e9;
+        }
+        
+        .filter-option input[type="radio"] {
+            margin-right: 0.8rem;
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+        
+        .filter-option label {
+            flex: 1;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }
+        
+        .alert-info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            color: #1565c0;
+        }
+        
+        .alert-warning {
+            background: #fff3e0;
+            border: 1px solid #ff9800;
+            color: #e65100;
+        }
+        
+        .alert-error {
+            background: #ffebee;
+            border: 1px solid #f44336;
+            color: #c62828;
+        }
+        
+        /* Permission Cards */
+        .permission-card {
+            background: #f5f5f5;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .permission-card.granted {
+            background: #e8f5e9;
+            border-color: #4caf50;
+        }
+        
+        .permission-card.denied {
+            background: #ffebee;
+            border-color: #f44336;
+        }
+        
+        .permission-icon {
+            font-size: 2.5rem;
+            flex-shrink: 0;
+        }
+        
+        .permission-info {
+            flex: 1;
+        }
+        
+        .permission-info h3 {
+            color: #1a5f3b;
+            margin: 0 0 0.3rem 0;
+            font-size: 1.1rem;
+        }
+        
+        .permission-info p {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.85rem;
+            color: #666;
+        }
+        
+        .permission-status {
+            font-size: 0.85rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .status-ok { background: #4caf50; }
+        .status-error { background: #f44336; }
+        .status-warning { background: #ff9800; }
+        
+        @media (max-width: 768px) {
+            .permission-card {
+                flex-direction: column;
+                text-align: center;
+                padding: 1rem 0.8rem;
+            }
+            
+            .permission-icon {
+                font-size: 2rem;
+            }
+            
+            .permission-info h3 {
+                font-size: 1rem;
+            }
+            
+            .permission-card .btn {
+                width: 100%;
+            }
+            
+            .filter-option {
+                padding: 0.6rem;
+                margin-bottom: 0.4rem;
+            }
+            
+            .filter-option label {
+                font-size: 0.85rem;
+            }
+            
+            .filter-section {
+                margin-top: 1rem;
+                padding-top: 1rem;
+            }
+            
+            .filter-section p {
+                margin-bottom: 0.4rem !important;
+            }
+            
+            .stats-box {
+                padding: 0.8rem;
+                font-size: 0.9rem;
+                margin-bottom: 0.8rem;
+            }
+            
+            .alert {
+                padding: 0.8rem;
+                font-size: 0.85rem;
+                margin-bottom: 0.8rem;
+            }
+            
+            .alert ol {
+                margin-left: 1rem !important;
+                margin-top: 0.3rem !important;
+            }
+            
+            .alert li {
+                margin-bottom: 0.2rem;
+                font-size: 0.85rem;
+            }
+            
+            .btn {
+                padding: 0.7rem 1.2rem;
+                font-size: 0.95rem;
+                margin-bottom: 0.4rem;
+            }
+        }
+        
+        /* AR Container */
+        .ar-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        #cameraView {
+            width: 100%;
+            height: 100vh;
+            object-fit: cover;
+        }
+        
+        .ar-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+        
+        .ar-header {
+            background: rgba(26, 95, 59, 0.95);
+            color: white;
+            padding: 1rem;
+            pointer-events: auto;
+            backdrop-filter: blur(10px);
+        }
+        
+        .ar-header h1 {
+            font-size: 1.1rem;
+            margin-bottom: 0.3rem;
+        }
+        
+        .ar-header p {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+        
+        .ar-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .ar-info-box {
+            position: absolute;
+            bottom: 100px;
+            left: 1rem;
+            right: 1rem;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 1rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            pointer-events: auto;
+        }
+        
+        .ar-info-box h3 {
+            color: #1a5f3b;
+            margin-bottom: 0.5rem;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .info-item {
+            background: #f5f5f5;
+            padding: 0.5rem;
+            border-radius: 6px;
+        }
+        
+        .info-item strong {
+            display: block;
+            color: #1a5f3b;
+            font-size: 0.75rem;
+            margin-bottom: 0.2rem;
+        }
+        
+        .ar-controls {
+            position: absolute;
+            bottom: 10px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0 1rem;
+            pointer-events: auto;
+        }
+        
+        .compass {
+            position: absolute;
+            top: 100px;
+            right: 1rem;
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            pointer-events: auto;
+        }
+        
+        .compass-direction {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #1a5f3b;
+        }
+        
+        .compass-degrees {
+            font-size: 0.7rem;
+            color: #666;
+        }
+        
+        .debug-info {
+            position: absolute;
+            top: 200px;
+            left: 1rem;
+            background: rgba(0, 0, 0, 0.8);
+            color: #0f0;
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.7rem;
+            max-width: 300px;
+            pointer-events: auto;
+        }
+        
+        .turbine-selector {
+            position: absolute;
+            top: 100px;
+            left: 1rem;
+            right: 1rem;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 1rem;
+            border-radius: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            pointer-events: auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        .turbine-selector.hidden {
+            display: none;
+        }
+        
+        .turbine-selector h3 {
+            color: #1a5f3b;
+            margin-bottom: 1rem;
+        }
+        
+        .turbine-select-item {
+            background: #f5f5f5;
+            padding: 0.8rem;
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .turbine-select-item:hover {
+            background: #e8f5e9;
+        }
+        
+        .turbine-select-item.active {
+            background: #1a5f3b;
+            color: white;
+        }
+        
+        @media (max-width: 768px) {
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Welcome Screen -->
+    <div class="welcome-screen" id="welcomeScreen">
+        <div class="welcome-box">
+            <h1>🌬️ Windrad AR Visualisierung</h1>
+            <p><strong>Gemeinde Neuhausen/Spree</strong></p>
+            
+            <p>Mit dieser App können Sie geplante Windkraftanlagen direkt in Ihrer Umgebung visualisieren.</p>
+            
+            <div class="stats-box" id="statsBox">
+                <strong>📡 Lade Windrad-Daten von GitHub...</strong><br>
+                <span id="turbineDetails" style="font-size: 0.9rem; color: #666;"></span>
+            </div>
+            
+            <div class="alert alert-info">
+                <strong>📱 So funktioniert's:</strong>
+                <ol style="margin-left: 1.2rem; margin-top: 0.5rem;">
+                    <li>Wählen Sie Entfernungsfilter</li>
+                    <li>Erlauben Sie Kamera- und Standortzugriff</li>
+                    <li>Richten Sie Ihr Handy zum Horizont</li>
+                    <li>Das Windrad erscheint in der richtigen Richtung</li>
+                </ol>
+            </div>
+            
+            <div class="filter-section">
+                <p style="font-size: 0.9rem; margin-bottom: 0.5rem;"><strong>🎯 Entfernungsfilter</strong></p>
+                <p style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">
+                    Zeige nur Windräder in folgender Entfernung:
+                </p>
+                
+                <div class="filter-option">
+                    <input type="radio" id="filter5" name="distance" value="5">
+                    <label for="filter5">
+                        <strong>5 km</strong> - Nur sehr nahe Windräder
+                    </label>
+                </div>
+                
+                <div class="filter-option">
+                    <input type="radio" id="filter10" name="distance" value="10" checked>
+                    <label for="filter10">
+                        <strong>10 km</strong> - Standard (empfohlen) ⭐
+                    </label>
+                </div>
+                
+                <div class="filter-option">
+                    <input type="radio" id="filter20" name="distance" value="20">
+                    <label for="filter20">
+                        <strong>20 km</strong> - Großer Umkreis
+                    </label>
+                </div>
+                
+                <div class="filter-option">
+                    <input type="radio" id="filterAll" name="distance" value="999">
+                    <label for="filterAll">
+                        <strong>Alle anzeigen</strong> - Ohne Filter
+                    </label>
+                </div>
+            </div>
+            
+            <button class="btn btn-primary" onclick="goToPermissions()" id="startBtn" style="margin-top: 1rem;" disabled>
+                🚀 Weiter zu Berechtigungen
+            </button>
+        </div>
+    </div>
+    
+    <!-- Permissions Screen -->
+    <div class="welcome-screen hidden" id="permissionsScreen">
+        <div class="welcome-box">
+            <h1>🔐 Berechtigungen erforderlich</h1>
+            <p style="color: #666; margin-bottom: 1.5rem;">
+                Für die AR-Visualisierung benötigen wir zwei Berechtigungen:
+            </p>
+            
+            <!-- Camera Permission -->
+            <div class="permission-card" id="cameraCard">
+                <div class="permission-icon">📷</div>
+                <div class="permission-info">
+                    <h3>Kamera</h3>
+                    <p>Um die Windräder in Ihrer Umgebung anzuzeigen</p>
+                    <div class="permission-status" id="cameraStatus">
+                        <span class="status-indicator status-warning"></span>
+                        Warten auf Berechtigung...
+                    </div>
+                </div>
+                <button class="btn btn-secondary" id="cameraBtn" onclick="requestCamera()">
+                    Erlauben
+                </button>
+            </div>
+            
+            <!-- GPS Permission -->
+            <div class="permission-card" id="gpsCard">
+                <div class="permission-icon">📍</div>
+                <div class="permission-info">
+                    <h3>Standort</h3>
+                    <p>Um Ihre Position zu bestimmen</p>
+                    <div class="permission-status" id="gpsStatus">
+                        <span class="status-indicator status-warning"></span>
+                        Warten auf Berechtigung...
+                    </div>
+                </div>
+                <button class="btn btn-secondary" id="gpsBtn" onclick="requestLocation()">
+                    Erlauben
+                </button>
+            </div>
+            
+            <div class="alert alert-info" style="margin-top: 1rem;">
+                <strong>💡 Hinweis:</strong><br>
+                Klicken Sie auf "Erlauben" bei beiden Abfragen.<br>
+                Ihre Daten bleiben auf Ihrem Gerät.
+            </div>
+            
+            <div class="alert alert-warning" id="permissionHelp" style="margin-top: 1rem; display: none;">
+                <strong>🔒 Berechtigung blockiert?</strong><br>
+                <small>
+                1. Klicken Sie auf das <strong>Schloss-Symbol 🔒</strong> in der Adressleiste<br>
+                2. Ändern Sie "Kamera" und "Standort" auf <strong>"Zulassen"</strong><br>
+                3. Laden Sie die Seite neu (F5 oder Seite nach unten ziehen)<br>
+                4. Klicken Sie erneut auf "Erlauben"
+                </small>
+            </div>
+            
+            <button class="btn btn-primary" onclick="startARAfterPermissions()" id="continueBtn" style="margin-top: 1rem;" disabled>
+                🎯 AR-Ansicht starten
+            </button>
+            
+            <button class="btn btn-secondary" onclick="backToWelcome()">
+                ⬅️ Zurück
+            </button>
+        </div>
+    </div>
+    
+    <!-- AR View -->
+    <div id="arView" style="display: none;">
+        <div class="ar-container">
+            <video id="cameraView" autoplay playsinline></video>
+            
+            <div class="ar-overlay">
+                <div class="ar-header">
+                    <h1>🌬️ Windrad AR</h1>
+                    <p>Neuhausen/Spree | <span id="filterStatus">Filter: 10 km</span></p>
+                </div>
+                
+                <canvas id="arCanvas" class="ar-canvas"></canvas>
+                
+                <div class="compass">
+                    <div class="compass-direction" id="compassDir">N</div>
+                    <div class="compass-degrees" id="compassDeg">0°</div>
+                </div>
+                
+                <div class="debug-info" id="debugInfo">
+                    <div><span class="status-indicator status-warning"></span> Initialisiere...</div>
+                </div>
+                
+                <div class="turbine-selector hidden" id="turbineSelector">
+                    <h3>Windrad auswählen</h3>
+                    <p style="font-size: 0.85rem; color: #666; margin-bottom: 1rem;">
+                        Windräder in Ihrer Nähe (max. <span id="selectorFilterInfo">10 km</span>)
+                    </p>
+                    <div id="arTurbineList"></div>
+                </div>
+                
+                <div class="ar-info-box" id="infoBox" style="display: none;">
+                    <h3 id="arTurbineName">-</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <strong>ENTFERNUNG</strong>
+                            <span id="distanceInfo">-</span>
+                        </div>
+                        <div class="info-item">
+                            <strong>RICHTUNG</strong>
+                            <span id="directionInfo">-</span>
+                        </div>
+                        <div class="info-item">
+                            <strong>NABENHÖHE</strong>
+                            <span id="heightInfo">-</span>
+                        </div>
+                        <div class="info-item">
+                            <strong>ROTOR-Ø</strong>
+                            <span id="rotorInfo">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="ar-controls">
+                    <button class="btn btn-secondary" onclick="toggleSelector()">🔄 Wechseln</button>
+                    <button class="btn btn-secondary" onclick="toggleDebug()">🐛</button>
+                    <button class="btn btn-primary" onclick="backFromAR()">⬅️</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Config - GitHub Raw URL
+        const CSV_URL = 'https://raw.githubusercontent.com/pischdi/Windrad/main/windraeder.csv';
+        
+        // State
+        let allTurbines = [];
+        let filteredTurbines = [];
+        let currentTurbine = null;
+        let userLocation = null;
+        let deviceOrientation = 0;
+        let cameraStream = null;
+        let canvas, ctx;
+        let debugEnabled = true;
+        let animationId = null;
+        let maxDistance = 10;
+        
+        // Permission state
+        let cameraGranted = false;
+        let gpsGranted = false;
+        
+        // Load turbines from GitHub
+        async function loadTurbines() {
+            try {
+                const response = await fetch(CSV_URL + '?_=' + Date.now());
+                
+                if (!response.ok) {
+                    throw new Error('CSV nicht gefunden (HTTP ' + response.status + ')');
+                }
+                
+                const csvText = await response.text();
+                allTurbines = parseCSV(csvText);
+                
+                console.log('✅ Windräder von GitHub geladen:', allTurbines.length);
+                return true;
+            } catch (e) {
+                console.error('Fehler beim Laden:', e);
+                return false;
+            }
+        }
+        
+        // Parse CSV
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const turbines = [];
+            
+            // Skip header
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const parts = line.split(',');
+                if (parts.length >= 6) {
+                    turbines.push({
+                        id: parseInt(parts[0]),
+                        name: parts[1],
+                        hubHeight: parseFloat(parts[2]),
+                        rotorDiameter: parseFloat(parts[3]),
+                        lat: parseFloat(parts[4]),
+                        lon: parseFloat(parts[5])
+                    });
+                }
+            }
+            
+            return turbines;
+        }
+        
+        // Filter turbines by distance
+        function filterTurbinesByDistance() {
+            if (!userLocation) return;
+            
+            filteredTurbines = allTurbines.filter(t => {
+                const distance = calcDistance(userLocation.lat, userLocation.lon, t.lat, t.lon);
+                return distance <= maxDistance;
+            });
+            
+            // Sort by distance
+            filteredTurbines.sort((a, b) => {
+                const distA = calcDistance(userLocation.lat, userLocation.lon, a.lat, a.lon);
+                const distB = calcDistance(userLocation.lat, userLocation.lon, b.lat, b.lon);
+                return distA - distB;
+            });
+            
+            console.log(`🎯 ${filteredTurbines.length} von ${allTurbines.length} Windrädern im ${maxDistance}km Umkreis`);
+        }
+        
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', async function() {
+            const loaded = await loadTurbines();
+            updateWelcomeStats(loaded);
+        });
+        
+        // Update welcome stats
+        function updateWelcomeStats(loaded) {
+            const statsBox = document.getElementById('statsBox');
+            const detailsEl = document.getElementById('turbineDetails');
+            const startBtn = document.getElementById('startBtn');
+            
+            if (!loaded || allTurbines.length === 0) {
+                statsBox.innerHTML = '<strong style="color: #d32f2f;">⚠️ Keine Windrad-Daten gefunden!</strong>';
+                detailsEl.innerHTML = 'Die CSV-Datei konnte nicht geladen werden.<br><small>Bitte kontaktieren Sie den Administrator.</small>';
+                startBtn.disabled = true;
+                startBtn.style.opacity = '0.5';
+                startBtn.textContent = 'Keine Daten verfügbar';
+            } else {
+                statsBox.innerHTML = `<strong>✅ Verfügbare Windräder: ${allTurbines.length}</strong>`;
+                detailsEl.textContent = allTurbines.map(t => `${t.name} (${t.hubHeight}m)`).join(', ');
+                startBtn.disabled = false;
+                startBtn.style.opacity = '1';
+            }
+        }
+        
+        // Go to permissions screen
+        function goToPermissions() {
+            // Get selected distance filter
+            const selected = document.querySelector('input[name="distance"]:checked');
+            maxDistance = parseFloat(selected.value);
+            
+            document.getElementById('welcomeScreen').classList.add('hidden');
+            document.getElementById('permissionsScreen').classList.remove('hidden');
+        }
+        
+        // Back to welcome
+        function backToWelcome() {
+            document.getElementById('permissionsScreen').classList.add('hidden');
+            document.getElementById('welcomeScreen').classList.remove('hidden');
+            
+            // Reset permissions
+            cameraGranted = false;
+            gpsGranted = false;
+            document.getElementById('continueBtn').disabled = true;
+        }
+        
+        // Request camera permission
+        async function requestCamera() {
+            const btn = document.getElementById('cameraBtn');
+            const status = document.getElementById('cameraStatus');
+            const card = document.getElementById('cameraCard');
+            
+            btn.disabled = true;
+            btn.textContent = 'Warte...';
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                });
+                
+                // Store stream for later use
+                cameraStream = stream;
+                
+                // Update UI
+                cameraGranted = true;
+                card.classList.add('granted');
+                status.innerHTML = '<span class="status-indicator status-ok"></span> Berechtigung erteilt ✓';
+                btn.style.display = 'none';
+                
+                checkPermissions();
+            } catch (error) {
+                console.error('Kamera-Fehler:', error);
+                card.classList.add('denied');
+                status.innerHTML = '<span class="status-indicator status-error"></span> Berechtigung verweigert';
+                btn.disabled = false;
+                btn.textContent = 'Erneut versuchen';
+                
+                // Show help section
+                document.getElementById('permissionHelp').style.display = 'block';
+                
+                let message = '🚫 Kamera-Zugriff blockiert!\n\n';
+                message += '📱 SO BEHEBEN SIE DAS:\n\n';
+                message += '1️⃣ Klicken Sie auf das Schloss-Symbol 🔒\n';
+                message += '    (links neben der Adressleiste)\n\n';
+                message += '2️⃣ Ändern Sie "Kamera" auf "Zulassen"\n\n';
+                message += '3️⃣ Laden Sie die Seite neu (F5)\n\n';
+                message += '4️⃣ Klicken Sie erneut auf "Erlauben"';
+                
+                alert(message);
+            }
+        }
+        
+        // Request location permission
+        async function requestLocation() {
+            const btn = document.getElementById('gpsBtn');
+            const status = document.getElementById('gpsStatus');
+            const card = document.getElementById('gpsCard');
+            
+            btn.disabled = true;
+            btn.textContent = 'Warte...';
+            
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    });
+                });
+                
+                // Store location
+                userLocation = {
+                    lat: position.coords.latitude,
+                    lon: position.coords.longitude,
+                    accuracy: position.coords.accuracy
+                };
+                
+                // Update UI
+                gpsGranted = true;
+                card.classList.add('granted');
+                status.innerHTML = `<span class="status-indicator status-ok"></span> Berechtigung erteilt ✓ (±${Math.round(userLocation.accuracy)}m)`;
+                btn.style.display = 'none';
+                
+                checkPermissions();
+            } catch (error) {
+                console.error('GPS-Fehler:', error);
+                card.classList.add('denied');
+                status.innerHTML = '<span class="status-indicator status-error"></span> Berechtigung verweigert';
+                btn.disabled = false;
+                btn.textContent = 'Erneut versuchen';
+                
+                // Show help section
+                document.getElementById('permissionHelp').style.display = 'block';
+                
+                let message = '🚫 Standort-Zugriff blockiert!\n\n';
+                
+                if (error.code === 1) {
+                    message += '📱 SO BEHEBEN SIE DAS:\n\n';
+                    message += '1️⃣ Klicken Sie auf das Schloss-Symbol 🔒\n';
+                    message += '2️⃣ Ändern Sie "Standort" auf "Zulassen"\n';
+                    message += '3️⃣ Laden Sie die Seite neu (F5)\n';
+                    message += '4️⃣ Klicken Sie erneut auf "Erlauben"';
+                } else if (error.code === 2) {
+                    message += 'GPS nicht verfügbar!\n• Gehen Sie nach draußen\n• Aktivieren Sie GPS';
+                } else if (error.code === 3) {
+                    message += 'Zeitüberschreitung!\n• Nach draußen gehen\n• 30-60 Sekunden warten';
+                }
+                
+                alert(message);
+            }
+        }
+        
+        // Check if both permissions granted
+        function checkPermissions() {
+            if (cameraGranted && gpsGranted) {
+                document.getElementById('continueBtn').disabled = false;
+            }
+        }
+        
+        // Start AR after permissions
+        function startARAfterPermissions() {
+            document.getElementById('permissionsScreen').classList.add('hidden');
+            document.getElementById('arView').style.display = 'block';
+            
+            // Update filter status
+            const filterText = maxDistance >= 999 ? 'Alle' : maxDistance + ' km';
+            document.getElementById('filterStatus').textContent = 'Filter: ' + filterText;
+            document.getElementById('selectorFilterInfo').textContent = filterText;
+            
+            initAR();
+        }
+        
+        // Initialize AR
+        async function initAR() {
+            updateDebug('Initialisiere AR...', 'warning');
+            
+            canvas = document.getElementById('arCanvas');
+            ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            try {
+                // Camera already granted and started
+                document.getElementById('cameraView').srcObject = cameraStream;
+                updateDebug('Kamera OK', 'ok');
+                
+                // Location already retrieved
+                updateDebug(`GPS OK (±${Math.round(userLocation.accuracy)}m)`, 'ok');
+                
+                // Filter turbines by distance
+                filterTurbinesByDistance();
+                
+                if (filteredTurbines.length === 0) {
+                    updateDebug(`Keine Windräder im ${maxDistance}km Umkreis`, 'warning');
+                    alert(`Keine Windräder in Ihrer Nähe (${maxDistance}km Umkreis)!\n\nVersuchen Sie einen größeren Filter.`);
+                    backFromAR();
+                    return;
+                }
+                
+                updateDebug(`${filteredTurbines.length} Windräder im ${maxDistance}km Umkreis`, 'ok');
+                
+                // Get orientation
+                if (window.DeviceOrientationEvent) {
+                    updateDebug('Starte Kompass...', 'warning');
+                    
+                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        const permission = await DeviceOrientationEvent.requestPermission();
+                        if (permission === 'granted') {
+                            window.addEventListener('deviceorientation', handleOrientation);
+                            updateDebug('Kompass OK (iOS)', 'ok');
+                        } else {
+                            updateDebug('Kompass verweigert', 'error');
+                        }
+                    } else {
+                        window.addEventListener('deviceorientationabsolute', handleOrientation);
+                        updateDebug('Kompass OK (Android)', 'ok');
+                    }
+                }
+                
+                // Show selector if multiple turbines
+                if (filteredTurbines.length > 1) {
+                    showTurbineSelector();
+                } else {
+                    selectTurbine(filteredTurbines[0]);
+                }
+                
+                // Start render loop
+                render();
+                
+            } catch (error) {
+                updateDebug('FEHLER: ' + error.message, 'error');
+                alert('Fehler beim Starten:\n\n' + error.message);
+                backFromAR();
+            }
+        }
+        
+        // Back from AR
+        function backFromAR() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+            
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            
+            // Reset permissions
+            cameraGranted = false;
+            gpsGranted = false;
+            userLocation = null;
+            
+            document.getElementById('arView').style.display = 'none';
+            document.getElementById('welcomeScreen').classList.remove('hidden');
+        }
+        
+        // Handle orientation
+        function handleOrientation(event) {
+            if (event.webkitCompassHeading) {
+                deviceOrientation = event.webkitCompassHeading;
+            } else if (event.alpha !== null) {
+                deviceOrientation = 360 - event.alpha;
+            }
+            updateCompass();
+        }
+        
+        // Update compass
+        function updateCompass() {
+            const directions = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
+            const index = Math.round(deviceOrientation / 45) % 8;
+            document.getElementById('compassDir').textContent = directions[index];
+            document.getElementById('compassDeg').textContent = Math.round(deviceOrientation) + '°';
+        }
+        
+        // Show turbine selector
+        function showTurbineSelector() {
+            const list = document.getElementById('arTurbineList');
+            list.innerHTML = filteredTurbines.map((t, i) => {
+                const distance = calcDistance(userLocation.lat, userLocation.lon, t.lat, t.lon);
+                return `
+                    <div class="turbine-select-item" onclick="selectTurbineById(${i})">
+                        <strong>${t.name}</strong>
+                        <p style="font-size: 0.85rem; margin-top: 0.3rem;">
+                            📏 ${t.hubHeight}m | ${t.rotorDiameter}m | 📍 ${distance.toFixed(1)} km
+                        </p>
+                    </div>
+                `;
+            }).join('');
+            
+            document.getElementById('turbineSelector').classList.remove('hidden');
+        }
+        
+        // Toggle selector
+        function toggleSelector() {
+            const selector = document.getElementById('turbineSelector');
+            selector.classList.toggle('hidden');
+        }
+        
+        // Select turbine by ID
+        function selectTurbineById(index) {
+            selectTurbine(filteredTurbines[index]);
+            document.getElementById('turbineSelector').classList.add('hidden');
+        }
+        
+        // Select turbine
+        function selectTurbine(turbine) {
+            currentTurbine = turbine;
+            updateTurbineInfo();
+        }
+        
+        // Update turbine info
+        function updateTurbineInfo() {
+            if (!currentTurbine || !userLocation) return;
+            
+            const distance = calcDistance(userLocation.lat, userLocation.lon, currentTurbine.lat, currentTurbine.lon);
+            const bearing = calcBearing(userLocation.lat, userLocation.lon, currentTurbine.lat, currentTurbine.lon);
+            
+            document.getElementById('arTurbineName').textContent = currentTurbine.name;
+            document.getElementById('distanceInfo').textContent = formatDistance(distance);
+            document.getElementById('directionInfo').textContent = formatDirection(bearing);
+            document.getElementById('heightInfo').textContent = currentTurbine.hubHeight + ' m';
+            document.getElementById('rotorInfo').textContent = currentTurbine.rotorDiameter + ' m';
+            document.getElementById('infoBox').style.display = 'block';
+        }
+        
+        // Render loop
+        function render() {
+            animationId = requestAnimationFrame(render);
+            
+            if (!ctx || !currentTurbine || !userLocation) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const bearing = calcBearing(userLocation.lat, userLocation.lon, currentTurbine.lat, currentTurbine.lon);
+            const distance = calcDistance(userLocation.lat, userLocation.lon, currentTurbine.lat, currentTurbine.lon);
+            
+            const relativeBearing = (bearing - deviceOrientation + 360) % 360;
+            
+            // Only draw if in view (±60 degrees)
+            if (relativeBearing > 60 && relativeBearing < 300) return;
+            
+            const screenX = (relativeBearing / 120) * canvas.width;
+            const actualHeight = currentTurbine.hubHeight + (currentTurbine.rotorDiameter / 2);
+            const pixelHeight = (actualHeight / distance) * 3000;
+            const screenY = canvas.height / 2;
+            
+            drawTurbine(screenX, screenY, pixelHeight);
+        }
+        
+        // Draw turbine
+        function drawTurbine(x, y, height) {
+            const towerWidth = height * 0.05;
+            const towerHeight = height * 0.7;
+            const bladeLength = height * 0.3;
+            
+            // Tower
+            ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
+            ctx.fillRect(x - towerWidth/2, y, towerWidth, -towerHeight);
+            
+            // Nacelle
+            ctx.fillStyle = 'rgba(220, 220, 220, 0.9)';
+            ctx.fillRect(x - towerWidth, y - towerHeight - 20, towerWidth * 2, 20);
+            
+            // Hub
+            ctx.fillStyle = 'rgba(180, 180, 180, 0.9)';
+            ctx.beginPath();
+            ctx.arc(x, y - towerHeight - 10, 10, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Rotating blades
+            const time = Date.now() / 1000;
+            for (let i = 0; i < 3; i++) {
+                const angle = (time * 2 + i * 120) * Math.PI / 180;
+                const bladeX = x + Math.sin(angle) * bladeLength;
+                const bladeY = y - towerHeight - 10 + Math.cos(angle) * bladeLength;
+                
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(x, y - towerHeight - 10);
+                ctx.lineTo(bladeX, bladeY);
+                ctx.stroke();
+            }
+            
+            // Label
+            ctx.fillStyle = 'rgba(26, 95, 59, 0.9)';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(currentTurbine.name, x, y + 30);
+        }
+        
+        // Calculate distance (Haversine)
+        function calcDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                     Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+        
+        // Calculate bearing
+        function calcBearing(lat1, lon1, lat2, lon2) {
+            const dLon = toRad(lon2 - lon1);
+            const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+            const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+                     Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+            let bearing = toDeg(Math.atan2(y, x));
+            return (bearing + 360) % 360;
+        }
+        
+        function toRad(deg) { return deg * Math.PI / 180; }
+        function toDeg(rad) { return rad * 180 / Math.PI; }
+        
+        function formatDistance(km) {
+            return km < 1 ? Math.round(km * 1000) + ' m' : km.toFixed(1) + ' km';
+        }
+        
+        function formatDirection(bearing) {
+            const dirs = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
+            const index = Math.round(bearing / 45) % 8;
+            return dirs[index] + ' (' + Math.round(bearing) + '°)';
+        }
+        
+        // Debug
+        function updateDebug(msg, status) {
+            const statusClass = 'status-' + status;
+            document.getElementById('debugInfo').innerHTML = 
+                `<div><span class="status-indicator ${statusClass}"></span> ${msg}</div>`;
+        }
+        
+        function toggleDebug() {
+            debugEnabled = !debugEnabled;
+            document.getElementById('debugInfo').style.display = debugEnabled ? 'block' : 'none';
+        }
+    </script>
+</body>
+</html>
