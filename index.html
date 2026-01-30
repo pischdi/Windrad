@@ -740,6 +740,7 @@
         let currentTurbine = null;
         let userLocation = null;
         let deviceOrientation = 0;
+        let deviceTilt = 0;  // Beta - pitch/tilt forward/backward
         let cameraStream = null;
         let canvas, ctx;
         let debugEnabled = true;
@@ -1084,11 +1085,18 @@
         
         // Handle orientation
         function handleOrientation(event) {
+            // Compass heading
             if (event.webkitCompassHeading) {
                 deviceOrientation = event.webkitCompassHeading;
             } else if (event.alpha !== null) {
                 deviceOrientation = 360 - event.alpha;
             }
+            
+            // Device tilt (pitch)
+            if (event.beta !== null) {
+                deviceTilt = event.beta;  // -180 to 180, 0 = horizontal, 90 = vertical up
+            }
+            
             updateCompass();
         }
         
@@ -1098,6 +1106,11 @@
             const index = Math.round(deviceOrientation / 45) % 8;
             document.getElementById('compassDir').textContent = directions[index];
             document.getElementById('compassDeg').textContent = Math.round(deviceOrientation) + '°';
+            
+            // Update debug with tilt info
+            if (debugEnabled && document.getElementById('debugInfo').style.display !== 'none') {
+                updateDebug(`Kompass: ${Math.round(deviceOrientation)}° | Neigung: ${Math.round(deviceTilt)}°`, 'ok');
+            }
         }
         
         // Show turbine selector
@@ -1181,6 +1194,7 @@
             // Only draw if in view (±60 degrees)
             if (relativeBearing > 60 && relativeBearing < 300) return;
             
+            // Horizontal position
             const screenX = (relativeBearing / 120) * canvas.width;
             
             // Convert distance to meters for size calculation
@@ -1188,14 +1202,32 @@
             const actualHeight = currentTurbine.hubHeight + (currentTurbine.rotorDiameter / 2);
             
             // Calculate pixel height - realistic formula
-            // At 279m distance, 241m turbine = ~400 pixels
-            // At 1km distance, 241m turbine = ~120 pixels
-            // At 5km distance, 241m turbine = ~24 pixels
             const pixelHeight = Math.max(30, Math.min(800, (actualHeight / distanceMeters) * 500));
             
-            const screenY = canvas.height / 2;
+            // Calculate vertical position based on elevation angle and device tilt
+            // Elevation angle to the TOP of the turbine
+            const elevationAngleDeg = Math.atan(actualHeight / distanceMeters) * (180 / Math.PI);
             
-            drawTurbine(screenX, screenY, pixelHeight);
+            // Adjust for device tilt (beta)
+            // When phone is horizontal (beta=0), turbine should be at horizon
+            // When phone tilts up (beta<0), turbine moves down on screen
+            // When phone tilts down (beta>0), turbine moves up on screen
+            const adjustedAngle = elevationAngleDeg - deviceTilt;
+            
+            // Convert angle to screen position
+            // Assume FOV (field of view) of ~60 degrees vertical
+            const verticalFOV = 60;
+            const screenYOffset = (adjustedAngle / verticalFOV) * canvas.height;
+            
+            // Position: center of screen + offset
+            // Negative offset = higher on screen (looking up)
+            // Positive offset = lower on screen (looking down)
+            const screenY = (canvas.height / 2) - screenYOffset;
+            
+            // Clamp to screen bounds
+            const clampedY = Math.max(pixelHeight, Math.min(canvas.height, screenY));
+            
+            drawTurbine(screenX, clampedY, pixelHeight);
         }
         
         // Draw turbine
