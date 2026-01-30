@@ -1144,6 +1144,8 @@
         function selectTurbine(turbine) {
             currentTurbine = turbine;
             updateTurbineInfo();
+            // Auto-show info box when turbine is selected
+            document.getElementById('infoBox').style.display = 'block';
         }
         
         // Update turbine info
@@ -1158,7 +1160,9 @@
             document.getElementById('directionInfo').textContent = formatDirection(bearing);
             document.getElementById('heightInfo').textContent = currentTurbine.hubHeight + ' m';
             document.getElementById('rotorInfo').textContent = currentTurbine.rotorDiameter + ' m';
-            document.getElementById('infoBox').style.display = 'block';
+            
+            // Update debug info to show current status
+            updateDebug(`${filteredTurbines.length} Windräder im ${maxDistance}km Umkreis`, 'ok');
         }
         
         // Render loop
@@ -1178,8 +1182,17 @@
             if (relativeBearing > 60 && relativeBearing < 300) return;
             
             const screenX = (relativeBearing / 120) * canvas.width;
+            
+            // Convert distance to meters for size calculation
+            const distanceMeters = distance * 1000;
             const actualHeight = currentTurbine.hubHeight + (currentTurbine.rotorDiameter / 2);
-            const pixelHeight = (actualHeight / distance) * 3000;
+            
+            // Calculate pixel height - realistic formula
+            // At 279m distance, 241m turbine = ~400 pixels
+            // At 1km distance, 241m turbine = ~120 pixels
+            // At 5km distance, 241m turbine = ~24 pixels
+            const pixelHeight = Math.max(30, Math.min(800, (actualHeight / distanceMeters) * 500));
+            
             const screenY = canvas.height / 2;
             
             drawTurbine(screenX, screenY, pixelHeight);
@@ -1191,40 +1204,61 @@
             const towerHeight = height * 0.7;
             const bladeLength = height * 0.3;
             
-            // Tower
-            ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
+            // Tower - more opaque
+            ctx.fillStyle = 'rgba(220, 220, 220, 1.0)';
             ctx.fillRect(x - towerWidth/2, y, towerWidth, -towerHeight);
             
+            // Tower outline for better visibility
+            ctx.strokeStyle = 'rgba(100, 100, 100, 1.0)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x - towerWidth/2, y, towerWidth, -towerHeight);
+            
             // Nacelle
-            ctx.fillStyle = 'rgba(220, 220, 220, 0.9)';
+            ctx.fillStyle = 'rgba(240, 240, 240, 1.0)';
             ctx.fillRect(x - towerWidth, y - towerHeight - 20, towerWidth * 2, 20);
             
             // Hub
-            ctx.fillStyle = 'rgba(180, 180, 180, 0.9)';
+            ctx.fillStyle = 'rgba(200, 200, 200, 1.0)';
             ctx.beginPath();
             ctx.arc(x, y - towerHeight - 10, 10, 0, 2 * Math.PI);
             ctx.fill();
             
-            // Rotating blades
+            // Rotating blades - more visible
             const time = Date.now() / 1000;
             for (let i = 0; i < 3; i++) {
                 const angle = (time * 2 + i * 120) * Math.PI / 180;
                 const bladeX = x + Math.sin(angle) * bladeLength;
                 const bladeY = y - towerHeight - 10 + Math.cos(angle) * bladeLength;
                 
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-                ctx.lineWidth = 5;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 1.0)';
+                ctx.lineWidth = 8;
+                ctx.beginPath();
+                ctx.moveTo(x, y - towerHeight - 10);
+                ctx.lineTo(bladeX, bladeY);
+                ctx.stroke();
+                
+                // Blade outline for contrast
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.lineWidth = 10;
                 ctx.beginPath();
                 ctx.moveTo(x, y - towerHeight - 10);
                 ctx.lineTo(bladeX, bladeY);
                 ctx.stroke();
             }
             
-            // Label
-            ctx.fillStyle = 'rgba(26, 95, 59, 0.9)';
-            ctx.font = 'bold 16px Arial';
+            // Label with background for better visibility
+            ctx.fillStyle = 'rgba(26, 95, 59, 0.95)';
+            ctx.fillRect(x - 80, y + 20, 160, 30);
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 1.0)';
+            ctx.font = 'bold 18px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText(currentTurbine.name, x, y + 30);
+            ctx.fillText(currentTurbine.name, x, y + 40);
+            
+            // Distance indicator
+            const distance = calcDistance(userLocation.lat, userLocation.lon, currentTurbine.lat, currentTurbine.lon);
+            ctx.font = '14px Arial';
+            ctx.fillText(formatDistance(distance), x, y + 60);
         }
         
         // Calculate distance (Haversine)
