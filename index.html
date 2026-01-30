@@ -468,14 +468,22 @@
             position: absolute;
             top: 200px;
             left: 1rem;
-            background: rgba(0, 0, 0, 0.8);
+            right: 1rem;
+            background: rgba(0, 0, 0, 0.9);
             color: #0f0;
-            padding: 0.5rem;
+            padding: 0.8rem;
             border-radius: 6px;
             font-family: monospace;
-            font-size: 0.7rem;
-            max-width: 300px;
+            font-size: 0.75rem;
+            max-width: 90%;
             pointer-events: auto;
+            line-height: 1.4;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        
+        .debug-info strong {
+            color: #fff;
         }
         
         .turbine-selector {
@@ -1257,8 +1265,31 @@
         // Debug
         function updateDebug(msg, status) {
             const statusClass = 'status-' + status;
-            document.getElementById('debugInfo').innerHTML = 
-                `<div><span class="status-indicator ${statusClass}"></span> ${msg}</div>`;
+            let debugHtml = `<div><span class="status-indicator ${statusClass}"></span> ${msg}</div>`;
+            
+            // Add current location if available
+            if (userLocation) {
+                debugHtml += `<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #0f0;">`;
+                debugHtml += `<strong>Ihre Position:</strong><br>`;
+                debugHtml += `📍 ${userLocation.lat.toFixed(6)}, ${userLocation.lon.toFixed(6)}<br>`;
+                debugHtml += `📏 Genauigkeit: ±${Math.round(userLocation.accuracy)}m`;
+                debugHtml += `</div>`;
+                
+                // Add turbine info if selected
+                if (currentTurbine) {
+                    const distance = calcDistance(userLocation.lat, userLocation.lon, currentTurbine.lat, currentTurbine.lon);
+                    const bearing = calcBearing(userLocation.lat, userLocation.lon, currentTurbine.lat, currentTurbine.lon);
+                    debugHtml += `<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #0f0;">`;
+                    debugHtml += `<strong>Windrad:</strong><br>`;
+                    debugHtml += `🌬️ ${currentTurbine.name}<br>`;
+                    debugHtml += `📍 ${currentTurbine.lat.toFixed(6)}, ${currentTurbine.lon.toFixed(6)}<br>`;
+                    debugHtml += `📏 ${distance.toFixed(2)} km entfernt<br>`;
+                    debugHtml += `🧭 ${Math.round(bearing)}° (${formatDirection(bearing)})`;
+                    debugHtml += `</div>`;
+                }
+            }
+            
+            document.getElementById('debugInfo').innerHTML = debugHtml;
         }
         
         function toggleDebug() {
