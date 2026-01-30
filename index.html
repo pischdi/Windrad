@@ -384,7 +384,7 @@
         
         .ar-controls {
             position: absolute;
-            bottom: 10px;
+            bottom: 20px;
             left: 0;
             right: 0;
             display: flex;
@@ -392,6 +392,49 @@
             gap: 0.5rem;
             padding: 0 1rem;
             pointer-events: auto;
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .ar-info-box {
+                bottom: 80px;
+                padding: 0.8rem;
+                left: 0.5rem;
+                right: 0.5rem;
+            }
+            
+            .ar-info-box h3 {
+                font-size: 1rem;
+                margin-bottom: 0.3rem;
+            }
+            
+            .info-grid {
+                grid-template-columns: 1fr;
+                gap: 0.3rem;
+                font-size: 0.85rem;
+            }
+            
+            .info-item {
+                padding: 0.4rem;
+            }
+            
+            .ar-controls {
+                bottom: 10px;
+                gap: 0.3rem;
+                padding: 0 0.5rem;
+            }
+            
+            .ar-controls .btn {
+                padding: 0.6rem 1rem;
+                font-size: 0.9rem;
+            }
+        }
+        
+        /* Safe area for notched displays */
+        @supports (padding: max(0px)) {
+            .ar-controls {
+                padding-bottom: max(10px, env(safe-area-inset-bottom));
+            }
         }
         
         .compass {
@@ -645,8 +688,11 @@
                 </div>
                 
                 <div class="ar-info-box" id="infoBox" style="display: none;">
-                    <h3 id="arTurbineName">-</h3>
-                    <div class="info-grid">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h3 id="arTurbineName" style="margin: 0;">-</h3>
+                        <button onclick="toggleInfoBox()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0; color: #1a5f3b;">×</button>
+                    </div>
+                    <div class="info-grid" id="infoGrid">
                         <div class="info-item">
                             <strong>ENTFERNUNG</strong>
                             <span id="distanceInfo">-</span>
@@ -667,7 +713,8 @@
                 </div>
                 
                 <div class="ar-controls">
-                    <button class="btn btn-secondary" onclick="toggleSelector()">🔄 Wechseln</button>
+                    <button class="btn btn-secondary" onclick="toggleInfoBox()">ℹ️</button>
+                    <button class="btn btn-secondary" onclick="toggleSelector()">🔄</button>
                     <button class="btn btn-secondary" onclick="toggleDebug()">🐛</button>
                     <button class="btn btn-primary" onclick="backFromAR()">⬅️</button>
                 </div>
@@ -947,6 +994,11 @@
             canvas.height = window.innerHeight;
             
             try {
+                // Check if userLocation exists
+                if (!userLocation) {
+                    throw new Error('GPS-Position nicht verfügbar. Bitte erlauben Sie Standortzugriff erneut.');
+                }
+                
                 // Camera already granted and started
                 document.getElementById('cameraView').srcObject = cameraStream;
                 updateDebug('Kamera OK', 'ok');
@@ -1062,6 +1114,16 @@
         function toggleSelector() {
             const selector = document.getElementById('turbineSelector');
             selector.classList.toggle('hidden');
+        }
+        
+        // Toggle info box
+        function toggleInfoBox() {
+            const infoBox = document.getElementById('infoBox');
+            if (infoBox.style.display === 'none') {
+                infoBox.style.display = 'block';
+            } else {
+                infoBox.style.display = 'none';
+            }
         }
         
         // Select turbine by ID
