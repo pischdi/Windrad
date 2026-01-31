@@ -714,28 +714,21 @@
                 document.getElementById('cameraView').classList.add('active');
                 document.getElementById('targetDirection').textContent = formatDirection(targetBearing);
                 
-                // Request orientation permission (iOS)
-                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    try {
+                // Get orientation - EXACT CODE FROM WORKING VERSION
+                if (window.DeviceOrientationEvent) {
+                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                         const permission = await DeviceOrientationEvent.requestPermission();
                         if (permission === 'granted') {
-                            window.addEventListener('deviceorientation', handleCameraOrientation, true);
+                            window.addEventListener('deviceorientation', handleCameraOrientation);
+                            console.log('✅ Kompass OK (iOS)');
                         } else {
-                            alert('⚠️ Kompass-Zugriff verweigert!\n\nOhne Kompass können Sie die Richtung nicht sehen.');
+                            alert('⚠️ Kompass-Zugriff verweigert!');
+                            console.log('❌ Kompass verweigert');
                         }
-                    } catch (e) {
-                        console.error('Kompass-Fehler:', e);
-                        alert('Kompass-Fehler: ' + e.message);
-                    }
-                } else if (window.DeviceOrientationEvent) {
-                    // Android or other browsers
-                    if ('ondeviceorientationabsolute' in window) {
-                        window.addEventListener('deviceorientationabsolute', handleCameraOrientation, true);
                     } else {
-                        window.addEventListener('deviceorientation', handleCameraOrientation, true);
+                        window.addEventListener('deviceorientationabsolute', handleCameraOrientation);
+                        console.log('✅ Kompass OK (Android)');
                     }
-                } else {
-                    alert('⚠️ Ihr Gerät unterstützt keinen Kompass!');
                 }
                 
             } catch (error) {
@@ -809,9 +802,9 @@
                 cameraStream = null;
             }
             
-            // Remove all orientation listeners
-            window.removeEventListener('deviceorientation', handleCameraOrientation, true);
-            window.removeEventListener('deviceorientationabsolute', handleCameraOrientation, true);
+            // Remove orientation listeners - SAME AS WORKING VERSION
+            window.removeEventListener('deviceorientation', handleCameraOrientation);
+            window.removeEventListener('deviceorientationabsolute', handleCameraOrientation);
             
             document.getElementById('cameraView').classList.remove('active');
         }
