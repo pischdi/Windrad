@@ -417,7 +417,7 @@
                         </div>
                     </div>
                     
-                    <button class="btn btn-primary" onclick="startCamera()" id="photoBtn">
+                    <button class="btn btn-primary" onclick="requestPermissionsAndStart()" id="photoBtn">
                         📸 Foto in diese Richtung aufnehmen
                     </button>
                 </div>
@@ -698,6 +698,33 @@
             document.getElementById('heightDisplay').textContent = currentTurbine.hubHeight + 'm';
         }
         
+        // Request permissions and start camera - MUST BE CALLED DIRECTLY FROM BUTTON CLICK
+        async function requestPermissionsAndStart() {
+            try {
+                // Request compass permission FIRST, in the direct user gesture context
+                if (typeof DeviceOrientationEvent !== 'undefined' && 
+                    typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    
+                    console.log('Requesting compass permission (iOS)...');
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    
+                    if (permission !== 'granted') {
+                        alert('⚠️ Kompass-Zugriff verweigert!\n\nOhne Kompass können Sie die Richtung nicht sehen.');
+                        return;
+                    }
+                    
+                    console.log('✅ Compass permission granted');
+                }
+                
+                // Now start camera
+                await startCamera();
+                
+            } catch (error) {
+                console.error('Permission error:', error);
+                alert('Fehler bei Berechtigungen:\n\n' + error.message);
+            }
+        }
+        
         // Start camera
         async function startCamera() {
             try {
@@ -714,18 +741,14 @@
                 document.getElementById('cameraView').classList.add('active');
                 document.getElementById('targetDirection').textContent = formatDirection(targetBearing);
                 
-                // Get orientation - EXACT CODE FROM WORKING VERSION
+                // Register orientation listeners (permission already granted)
                 if (window.DeviceOrientationEvent) {
                     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                        const permission = await DeviceOrientationEvent.requestPermission();
-                        if (permission === 'granted') {
-                            window.addEventListener('deviceorientation', handleCameraOrientation);
-                            console.log('✅ Kompass OK (iOS)');
-                        } else {
-                            alert('⚠️ Kompass-Zugriff verweigert!');
-                            console.log('❌ Kompass verweigert');
-                        }
+                        // iOS - permission already granted above
+                        window.addEventListener('deviceorientation', handleCameraOrientation);
+                        console.log('✅ Kompass OK (iOS)');
                     } else {
+                        // Android
                         window.addEventListener('deviceorientationabsolute', handleCameraOrientation);
                         console.log('✅ Kompass OK (Android)');
                     }
