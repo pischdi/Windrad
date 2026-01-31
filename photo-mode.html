@@ -307,6 +307,39 @@
             color: #2e7d32;
         }
         
+        /* Turbine List */
+        .turbine-list-item {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .turbine-list-item:hover {
+            border-color: #1a5f3b;
+            background: #f5fdf7;
+        }
+        
+        .turbine-list-item.active {
+            border-color: #1a5f3b;
+            background: #e8f5e9;
+        }
+        
+        .turbine-list-item h4 {
+            color: #1a5f3b;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+        }
+        
+        .turbine-list-item p {
+            color: #666;
+            font-size: 0.85rem;
+            margin: 0.2rem 0;
+        }
+        
         /* Loading */
         .loading {
             text-align: center;
@@ -390,11 +423,23 @@
                 </div>
             </div>
             
+            <!-- Turbine Selection -->
+            <div class="map-section" id="turbineSelection" style="display: none;">
+                <div class="map-info">
+                    <h3 style="color: #1a5f3b; margin-bottom: 1rem;">🌬️ Windrad auswählen</h3>
+                    <p style="color: #666; margin-bottom: 1rem; font-size: 0.9rem;">
+                        Klicken Sie auf ein Windrad oder wählen Sie aus der Liste:
+                    </p>
+                    <div id="turbineList"></div>
+                </div>
+            </div>
+            
             <!-- Info Alert -->
             <div class="alert alert-info">
                 <strong>💡 So funktioniert's:</strong>
                 <ol style="margin-left: 1.2rem; margin-top: 0.5rem; line-height: 1.6;">
-                    <li>Die Karte zeigt Ihren Standort und das Windrad</li>
+                    <li>Die Karte zeigt Ihren Standort und alle Windräder</li>
+                    <li>Klicken Sie auf ein Windrad oder wählen Sie aus der Liste</li>
                     <li>Die Sichtlinie zeigt die Foto-Richtung</li>
                     <li>Klicken Sie auf "Foto aufnehmen"</li>
                     <li>Richten Sie Kamera in die angezeigte Richtung</li>
@@ -529,7 +574,7 @@
         // Initialize map
         function initMap() {
             // Create map
-            map = L.map('map').setView([userLocation.lat, userLocation.lon], 15);
+            map = L.map('map').setView([userLocation.lat, userLocation.lon], 13);
             
             // Add OpenTopoMap layer (with elevation contours!)
             L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
@@ -549,35 +594,95 @@
                 .addTo(map)
                 .bindPopup('📍 Ihr Standort');
             
-            // Turbine marker
-            const turbineIcon = L.divIcon({
-                html: '<div style="background: #1a5f3b; width: 30px; height: 30px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white; font-size: 16px;">🌬️</div>',
-                className: '',
-                iconSize: [30, 30],
-                iconAnchor: [15, 15]
+            // Add ALL turbines to map
+            allTurbines.forEach(turbine => {
+                const turbineIcon = L.divIcon({
+                    html: '<div style="background: #1a5f3b; width: 30px; height: 30px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white; font-size: 16px;">🌬️</div>',
+                    className: '',
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
+                });
+                
+                const distance = calcDistance(userLocation.lat, userLocation.lon, turbine.lat, turbine.lon);
+                
+                const marker = L.marker([turbine.lat, turbine.lon], { icon: turbineIcon })
+                    .addTo(map)
+                    .bindPopup(`🌬️ <strong>${turbine.name}</strong><br>Entfernung: ${formatDistance(distance)}<br>Höhe: ${turbine.hubHeight}m`)
+                    .on('click', () => selectTurbine(turbine));
+                
+                turbine.marker = marker;
             });
             
-            turbineMarker = L.marker([currentTurbine.lat, currentTurbine.lon], { icon: turbineIcon })
-                .addTo(map)
-                .bindPopup(`🌬️ ${currentTurbine.name}<br>Höhe: ${currentTurbine.hubHeight}m`);
+            // Select nearest turbine by default
+            selectTurbine(currentTurbine);
             
-            // Sight line
+            // Render turbine list
+            renderTurbineList();
+            
+            // Show turbine selection
+            document.getElementById('turbineSelection').style.display = 'block';
+        }
+        
+        // Render turbine list
+        function renderTurbineList() {
+            const list = document.getElementById('turbineList');
+            
+            // Sort by distance
+            const sorted = allTurbines.map(t => {
+                const distance = calcDistance(userLocation.lat, userLocation.lon, t.lat, t.lon);
+                return { turbine: t, distance: distance };
+            }).sort((a, b) => a.distance - b.distance);
+            
+            list.innerHTML = sorted.map(item => {
+                const bearing = calcBearing(userLocation.lat, userLocation.lon, item.turbine.lat, item.turbine.lon);
+                const isActive = currentTurbine && currentTurbine.id === item.turbine.id;
+                
+                return `
+                    <div class="turbine-list-item ${isActive ? 'active' : ''}" 
+                         onclick='selectTurbineById(${item.turbine.id})'>
+                        <h4>🌬️ ${item.turbine.name}</h4>
+                        <p>📏 ${formatDistance(item.distance)} entfernt | 🧭 ${formatDirection(bearing)}</p>
+                        <p>📊 Nabenhöhe: ${item.turbine.hubHeight}m | Rotor: ${item.turbine.rotorDiameter}m</p>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Select turbine by ID
+        function selectTurbineById(id) {
+            const turbine = allTurbines.find(t => t.id === id);
+            if (turbine) selectTurbine(turbine);
+        }
+        
+        // Select turbine
+        function selectTurbine(turbine) {
+            currentTurbine = turbine;
+            
+            // Remove old sight line
+            if (sightLine) {
+                map.removeLayer(sightLine);
+            }
+            
+            // Draw new sight line
             sightLine = L.polyline(
                 [[userLocation.lat, userLocation.lon], [currentTurbine.lat, currentTurbine.lon]],
                 {
                     color: '#1a5f3b',
-                    weight: 3,
+                    weight: 4,
                     dashArray: '10, 10',
-                    opacity: 0.7
+                    opacity: 0.8
                 }
             ).addTo(map);
             
-            // Fit bounds
+            // Fit bounds to user and selected turbine
             const bounds = L.latLngBounds([userLocation.lat, userLocation.lon], [currentTurbine.lat, currentTurbine.lon]);
-            map.fitBounds(bounds, { padding: [50, 50] });
+            map.fitBounds(bounds, { padding: [80, 80] });
             
             // Update info
             updateMapInfo();
+            
+            // Update list selection
+            renderTurbineList();
         }
         
         // Update map info
