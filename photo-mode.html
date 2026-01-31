@@ -460,13 +460,14 @@
             </div>
             
             <div class="camera-compass">
-                <div class="compass-direction" id="cameraCompassDir">N</div>
-                <div class="compass-degrees" id="cameraCompassDeg">0°</div>
+                <div class="compass-direction" id="cameraCompassDir">?</div>
+                <div class="compass-degrees" id="cameraCompassDeg">Warte...</div>
             </div>
             
             <div class="direction-indicator" id="directionIndicator">
                 <div class="direction-arrow" id="directionArrow">→</div>
                 <div id="directionText">Drehen Sie sich nach rechts</div>
+                <div id="compassDebug" style="font-size: 0.7rem; margin-top: 0.5rem; opacity: 0.7;"></div>
             </div>
             
             <div class="camera-controls">
@@ -700,6 +701,7 @@
         // Start camera
         async function startCamera() {
             try {
+                // Request camera
                 cameraStream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: 'environment',
@@ -712,30 +714,53 @@
                 document.getElementById('cameraView').classList.add('active');
                 document.getElementById('targetDirection').textContent = formatDirection(targetBearing);
                 
-                // Start orientation tracking
-                if (window.DeviceOrientationEvent) {
-                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                // Request orientation permission (iOS)
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    try {
                         const permission = await DeviceOrientationEvent.requestPermission();
                         if (permission === 'granted') {
-                            window.addEventListener('deviceorientation', handleCameraOrientation);
+                            window.addEventListener('deviceorientation', handleCameraOrientation, true);
+                        } else {
+                            alert('⚠️ Kompass-Zugriff verweigert!\n\nOhne Kompass können Sie die Richtung nicht sehen.');
                         }
-                    } else {
-                        window.addEventListener('deviceorientationabsolute', handleCameraOrientation);
+                    } catch (e) {
+                        console.error('Kompass-Fehler:', e);
+                        alert('Kompass-Fehler: ' + e.message);
                     }
+                } else if (window.DeviceOrientationEvent) {
+                    // Android or other browsers
+                    if ('ondeviceorientationabsolute' in window) {
+                        window.addEventListener('deviceorientationabsolute', handleCameraOrientation, true);
+                    } else {
+                        window.addEventListener('deviceorientation', handleCameraOrientation, true);
+                    }
+                } else {
+                    alert('⚠️ Ihr Gerät unterstützt keinen Kompass!');
                 }
+                
             } catch (error) {
+                console.error('Kamera-Fehler:', error);
                 alert('Kamera-Zugriff verweigert!\n\n' + error.message);
             }
         }
         
         // Handle camera orientation
         function handleCameraOrientation(event) {
-            if (event.webkitCompassHeading) {
+            // Try webkitCompassHeading first (iOS)
+            if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
                 deviceOrientation = event.webkitCompassHeading;
-            } else if (event.alpha !== null) {
+            } 
+            // Try alpha (Android and others)
+            else if (event.alpha !== null && event.alpha !== undefined) {
                 deviceOrientation = 360 - event.alpha;
             }
+            // Fallback
+            else {
+                console.warn('Keine Kompass-Daten:', event);
+                return;
+            }
             
+            // Update displays
             updateCameraCompass();
             updateDirectionIndicator();
         }
@@ -754,6 +779,10 @@
             const indicator = document.getElementById('directionIndicator');
             const arrow = document.getElementById('directionArrow');
             const text = document.getElementById('directionText');
+            const debug = document.getElementById('compassDebug');
+            
+            // Debug info
+            debug.textContent = `Kompass: ${Math.round(deviceOrientation)}° | Ziel: ${Math.round(targetBearing)}°`;
             
             if (Math.abs(diff) < 10 || Math.abs(diff) > 350) {
                 // Correct direction!
@@ -779,9 +808,12 @@
                 cameraStream.getTracks().forEach(track => track.stop());
                 cameraStream = null;
             }
+            
+            // Remove all orientation listeners
+            window.removeEventListener('deviceorientation', handleCameraOrientation, true);
+            window.removeEventListener('deviceorientationabsolute', handleCameraOrientation, true);
+            
             document.getElementById('cameraView').classList.remove('active');
-            window.removeEventListener('deviceorientation', handleCameraOrientation);
-            window.removeEventListener('deviceorientationabsolute', handleCameraOrientation);
         }
         
         // Take photo
