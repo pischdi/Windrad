@@ -34,9 +34,9 @@ class ElevationService {
             
             return profile;
             
-        } catch (error) {
-            error('Brandenburg WMS failed, trying fallback:', error);
-            
+        } catch (err) {
+            error('Brandenburg WMS failed, trying fallback:', err);
+
             // Fallback to OpenElevation
             return await this._fetchFromOpenElevation(lat1, lon1, lat2, lon2, samples);
         }

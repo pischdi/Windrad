@@ -48,9 +48,9 @@ class WindradARApp {
             
             log('Application initialized successfully');
             
-        } catch (error) {
-            error('Initialization failed:', error);
-            this._showError('Initialisierung fehlgeschlagen: ' + error.message);
+        } catch (err) {
+            error('Initialization failed:', err);
+            this._showError('Initialisierung fehlgeschlagen: ' + err.message);
         }
     }
 
@@ -221,8 +221,8 @@ class WindradARApp {
                 this._hideVisibilityInfo();
             }
             
-        } catch (error) {
-            error('Visibility calculation failed:', error);
+        } catch (err) {
+            error('Visibility calculation failed:', err);
             this._hideVisibilityInfo();
         } finally {
             loading.classList.remove('active');
@@ -274,9 +274,9 @@ class WindradARApp {
             
             this.cameraController.setTargetBearing(bearing);
             
-        } catch (error) {
-            error('Camera start failed:', error);
-            alert('Fehler beim Starten der Kamera: ' + error.message);
+        } catch (err) {
+            error('Camera start failed:', err);
+            alert('Fehler beim Starten der Kamera: ' + err.message);
         }
     }
 
