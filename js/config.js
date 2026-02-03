@@ -49,9 +49,11 @@ const CONFIG = {
     CAMERA: {
         targetThreshold: 10,      // Grad Abweichung für "perfekt"
         videoConstraints: {
-            facingMode: 'environment',
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
+            video: {
+                facingMode: 'environment',
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            }
         }
     },
     
