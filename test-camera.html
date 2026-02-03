@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>📸 Kamera-Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #fff;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 { color: #ffc107; }
+        .step {
+            background: #2a2a2a;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+        .success { border-left-color: #28a745; background: #1a3a24; }
+        .error { border-left-color: #dc3545; background: #3a1a1a; }
+        .warning { border-left-color: #ffc107; background: #3a3320; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            width: 100%;
+            max-width: 300px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        video {
+            width: 100%;
+            max-width: 600px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+        video.active { display: block; }
+        pre {
+            background: #000;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #007bff;
+            padding-left: 10px;
+        }
+        .log-entry.error {
+            border-left-color: #dc3545;
+            color: #ff6b6b;
+        }
+        .log-entry.success {
+            border-left-color: #28a745;
+            color: #51cf66;
+        }
+    </style>
+</head>
+<body>
+    <h1>📸 Windrad AR - Kamera Flow Test</h1>
+    <p>Dieser Test simuliert den exakten Ablauf der Haupt-App.</p>
+
+    <div class="step">
+        <h2>Schritt 1: Berechtigungen anfragen</h2>
+        <button id="btn1" onclick="step1()">🔐 Berechtigungen anfragen</button>
+        <div id="result1"></div>
+    </div>
+
+    <div class="step">
+        <h2>Schritt 2: Kamera starten</h2>
+        <button id="btn2" onclick="step2()" disabled>📸 Kamera starten</button>
+        <div id="result2"></div>
+    </div>
+
+    <div class="step">
+        <h2>Schritt 3: Video-Stream</h2>
+        <video id="video" autoplay playsinline></video>
+        <button id="btn3" onclick="step3()" disabled>✕ Kamera stoppen</button>
+    </div>
+
+    <div class="step">
+        <h2>📋 Console Logs</h2>
+        <button onclick="clearLogs()">🗑️ Logs löschen</button>
+        <div id="logs"></div>
+    </div>
+
+    <!-- Load scripts -->
+    <script src="js/config.js"></script>
+    <script src="js/camera-controller.js"></script>
+    <script src="js/elevation-service.js"></script>
+
+    <script>
+        const logsDiv = document.getElementById('logs');
+        let cameraController = null;
+
+        // Intercept console.log and console.error
+        const originalLog = console.log;
+        const originalError = console.error;
+
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addLog(args.join(' '), 'log');
+        };
+
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addLog(args.join(' '), 'error');
+        };
+
+        function addLog(message, type = 'log') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            logsDiv.appendChild(entry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function clearLogs() {
+            logsDiv.innerHTML = '';
+        }
+
+        function setResult(id, html, className = '') {
+            const div = document.getElementById(id);
+            div.innerHTML = html;
+            if (className) {
+                div.parentElement.className = 'step ' + className;
+            }
+        }
+
+        async function step1() {
+            setResult('result1', '⏳ Berechtigungen werden angefragt...', 'warning');
+
+            try {
+                console.log('=== SCHRITT 1: Berechtigungen anfragen ===');
+
+                // Create controller
+                cameraController = new CameraController();
+                console.log('✅ CameraController erstellt');
+
+                // Request permissions
+                const result = await cameraController.requestPermissions();
+                console.log('✅ Berechtigungen erteilt:', result);
+
+                setResult('result1', '✅ Berechtigungen erfolgreich erteilt!', 'success');
+                document.getElementById('btn2').disabled = false;
+
+            } catch (error) {
+                console.error('❌ Fehler bei Berechtigungen:', error);
+                setResult('result1', `❌ Fehler: ${error.message}`, 'error');
+            }
+        }
+
+        async function step2() {
+            setResult('result2', '⏳ Kamera wird gestartet...', 'warning');
+
+            try {
+                console.log('=== SCHRITT 2: Kamera starten ===');
+
+                await cameraController.startCamera();
+                console.log('✅ Kamera gestartet');
+
+                const video = document.getElementById('video');
+                video.srcObject = cameraController.cameraStream;
+                video.classList.add('active');
+
+                setResult('result2', '✅ Kamera erfolgreich gestartet!', 'success');
+                document.getElementById('btn3').disabled = false;
+
+            } catch (error) {
+                console.error('❌ Fehler beim Kamera-Start:', error);
+                setResult('result2', `❌ Fehler: ${error.message}`, 'error');
+            }
+        }
+
+        function step3() {
+            console.log('=== SCHRITT 3: Kamera stoppen ===');
+
+            if (cameraController) {
+                cameraController.stopCamera();
+                document.getElementById('video').classList.remove('active');
+                console.log('✅ Kamera gestoppt');
+
+                // Reset
+                document.getElementById('btn1').disabled = false;
+                document.getElementById('btn2').disabled = true;
+                document.getElementById('btn3').disabled = true;
+                setResult('result1', '');
+                setResult('result2', '');
+            }
+        }
+
+        // Check initial state
+        window.addEventListener('load', () => {
+            console.log('=== PAGE LOADED ===');
+            console.log('CONFIG.DEBUG:', CONFIG.DEBUG);
+            console.log('HTTPS:', window.location.protocol === 'https:' || window.location.hostname === 'localhost');
+            console.log('UserAgent:', navigator.userAgent);
+
+            if (typeof CameraController === 'undefined') {
+                addLog('❌ FEHLER: CameraController nicht geladen!', 'error');
+            } else {
+                addLog('✅ CameraController verfügbar', 'success');
+            }
+
+            if (typeof log === 'undefined') {
+                addLog('❌ FEHLER: log() Funktion nicht verfügbar!', 'error');
+            } else {
+                addLog('✅ log() Funktion verfügbar', 'success');
+            }
+        });
+
+        // Capture errors
+        window.addEventListener('error', (event) => {
+            addLog(`❌ JS Error: ${event.message} (${event.filename}:${event.lineno})`, 'error');
+        });
+    </script>
+</body>
+</html>

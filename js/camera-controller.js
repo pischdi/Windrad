@@ -18,7 +18,7 @@ class CameraController {
      */
     async requestPermissions() {
         try {
-            // 1. Request compass permission first (iOS requirement)
+            // Request compass permission (iOS requirement)
             if (typeof DeviceOrientationEvent !== 'undefined' &&
                 typeof DeviceOrientationEvent.requestPermission === 'function') {
                 const permission = await DeviceOrientationEvent.requestPermission();
@@ -28,32 +28,16 @@ class CameraController {
                 log('Kompass-Berechtigung erteilt');
             }
 
-            // 2. Check if camera API is available
+            // Check if camera API is available (but don't request yet)
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 throw new Error('Kamera-API nicht verfügbar. Verwenden Sie HTTPS.');
             }
 
-            // 3. Test camera permission by requesting stream (then immediately stop)
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment' }
-            });
-            stream.getTracks().forEach(track => track.stop());  // Stop immediately
-            log('Kamera-Berechtigung erteilt');
-
+            log('Kamera-API verfügbar');
             return true;
 
         } catch (error) {
             console.error('Permission error:', error);
-
-            // Provide detailed error messages
-            if (error.name === 'NotAllowedError') {
-                throw new Error('Kamera-Berechtigung verweigert. Bitte in den Browser-Einstellungen erlauben.');
-            } else if (error.name === 'NotFoundError') {
-                throw new Error('Keine Kamera gefunden.');
-            } else if (error.name === 'SecurityError') {
-                throw new Error('HTTPS erforderlich. Öffnen Sie die App über https://');
-            }
-
             throw error;
         }
     }
@@ -63,24 +47,45 @@ class CameraController {
      */
     async startCamera() {
         try {
+            log('Starting camera with constraints:', CONFIG.CAMERA.videoConstraints);
+
             this.cameraStream = await navigator.mediaDevices.getUserMedia(
                 CONFIG.CAMERA.videoConstraints
             );
-            
+
+            log('Camera stream obtained, setting up video element...');
+
             const video = document.getElementById('cameraPreview');
             video.srcObject = this.cameraStream;
-            
+
             document.getElementById('cameraView').classList.add('active');
             this.isActive = true;
-            
+
             // Setup orientation listeners
             this._setupOrientationListeners();
-            
-            log('Camera started');
-            
+
+            log('Camera started successfully');
+
         } catch (error) {
             console.error('Camera error:', error);
-            throw new Error('Kamera konnte nicht gestartet werden: ' + error.message);
+
+            // Provide detailed error messages
+            let message = 'Kamera konnte nicht gestartet werden: ';
+            if (error.name === 'NotAllowedError') {
+                message += 'Berechtigung verweigert. Bitte in den Browser-Einstellungen erlauben.';
+            } else if (error.name === 'NotFoundError') {
+                message += 'Keine Kamera gefunden.';
+            } else if (error.name === 'NotReadableError') {
+                message += 'Kamera wird bereits von einer anderen Anwendung verwendet.';
+            } else if (error.name === 'OverconstrainedError') {
+                message += 'Kamera erfüllt die Anforderungen nicht (z.B. keine Rückkamera).';
+            } else if (error.name === 'SecurityError') {
+                message += 'HTTPS erforderlich.';
+            } else {
+                message += error.message;
+            }
+
+            throw new Error(message);
         }
     }
 

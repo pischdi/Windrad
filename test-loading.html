@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 Lade-Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #fff;
+        }
+        .test { margin: 10px 0; padding: 10px; border-radius: 4px; }
+        .success { background: #155724; border-left: 4px solid #28a745; }
+        .error { background: #721c24; border-left: 4px solid #dc3545; }
+        .warning { background: #856404; border-left: 4px solid #ffc107; }
+        h1 { color: #ffc107; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover { background: #0056b3; }
+        pre { background: #000; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Windrad AR - Lade-Test</h1>
+    <div id="output"></div>
+
+    <h2>📸 Funktions-Tests</h2>
+    <button onclick="testConfig()">CONFIG testen</button>
+    <button onclick="testLog()">log() testen</button>
+    <button onclick="testClasses()">Klassen testen</button>
+    <button onclick="testPermissions()">Berechtigungen testen</button>
+    <button onclick="window.location.reload()">🔄 Neu laden</button>
+    <div id="tests"></div>
+
+    <!-- Load scripts in order -->
+    <script src="js/config.js"></script>
+    <script src="js/elevation-service.js"></script>
+    <script src="js/visibility-calculator.js"></script>
+    <script src="js/map-manager.js"></script>
+    <script src="js/windrad-renderer.js"></script>
+    <script src="js/camera-controller.js"></script>
+    <script src="js/app.js"></script>
+
+    <script>
+        const output = document.getElementById('output');
+        const tests = document.getElementById('tests');
+
+        function addResult(message, type = 'success') {
+            const div = document.createElement('div');
+            div.className = `test ${type}`;
+            div.innerHTML = message;
+            output.appendChild(div);
+        }
+
+        function addTestResult(message, type = 'success') {
+            const div = document.createElement('div');
+            div.className = `test ${type}`;
+            div.innerHTML = message;
+            tests.appendChild(div);
+        }
+
+        // Test script loading
+        window.addEventListener('DOMContentLoaded', () => {
+            addResult('✅ DOMContentLoaded Event gefeuert');
+
+            // Test if CONFIG is loaded
+            if (typeof CONFIG !== 'undefined') {
+                addResult(`✅ CONFIG geladen: DEBUG = ${CONFIG.DEBUG}`);
+            } else {
+                addResult('❌ CONFIG nicht geladen!', 'error');
+            }
+
+            // Test if log function exists
+            if (typeof log !== 'undefined') {
+                addResult('✅ log() Funktion existiert');
+            } else {
+                addResult('❌ log() Funktion nicht gefunden!', 'error');
+            }
+
+            // Test if error function exists
+            if (typeof error !== 'undefined') {
+                addResult('✅ error() Funktion existiert');
+            } else {
+                addResult('❌ error() Funktion nicht gefunden!', 'error');
+            }
+
+            // Test classes
+            const classes = [
+                'ElevationService',
+                'VisibilityCalculator',
+                'MapManager',
+                'WindradRenderer',
+                'CameraController',
+                'WindradARApp'
+            ];
+
+            classes.forEach(className => {
+                if (typeof window[className] !== 'undefined') {
+                    addResult(`✅ ${className} geladen`);
+                } else {
+                    addResult(`❌ ${className} nicht geladen!`, 'error');
+                }
+            });
+
+            // Test if utility functions exist
+            const utils = ['calcDistance', 'calcBearing', 'formatDistance', 'formatDirection'];
+            utils.forEach(funcName => {
+                if (typeof window[funcName] !== 'undefined') {
+                    addResult(`✅ ${funcName}() existiert`);
+                } else {
+                    addResult(`❌ ${funcName}() nicht gefunden!`, 'error');
+                }
+            });
+
+            // Check for errors in console
+            addResult('⚠️ Öffnen Sie die Browser-Konsole (F12) um Fehler zu sehen', 'warning');
+        });
+
+        function testConfig() {
+            tests.innerHTML = '';
+            addTestResult('<strong>CONFIG Test:</strong>');
+            addTestResult(`<pre>${JSON.stringify(CONFIG, null, 2)}</pre>`);
+        }
+
+        function testLog() {
+            tests.innerHTML = '';
+            addTestResult('<strong>log() Test:</strong>');
+
+            if (typeof log !== 'undefined') {
+                console.log('=== MANUAL LOG TEST ===');
+                log('Test 1: Normale Log-Nachricht');
+                log('Test 2: Mit mehreren', 'Argumenten', 123);
+                console.log('=== END LOG TEST ===');
+                addTestResult('✅ log() aufgerufen - prüfen Sie die Konsole!');
+                addTestResult('Sollte sehen: <code>[WINDRAD-AR] Test 1: ...</code>');
+            } else {
+                addTestResult('❌ log() Funktion nicht verfügbar', 'error');
+            }
+
+            if (typeof error !== 'undefined') {
+                console.log('=== MANUAL ERROR TEST ===');
+                error('Test Fehlermeldung');
+                console.log('=== END ERROR TEST ===');
+                addTestResult('✅ error() aufgerufen - prüfen Sie die Konsole!');
+                addTestResult('Sollte sehen: <code>[WINDRAD-AR ERROR] Test Fehlermeldung</code>');
+            } else {
+                addTestResult('❌ error() Funktion nicht verfügbar', 'error');
+            }
+        }
+
+        function testClasses() {
+            tests.innerHTML = '';
+            addTestResult('<strong>Klassen Test:</strong>');
+
+            try {
+                // Test ElevationService
+                const elevationService = new ElevationService();
+                addTestResult('✅ ElevationService instanziiert');
+
+                // Test VisibilityCalculator
+                const visibilityCalculator = new VisibilityCalculator(elevationService);
+                addTestResult('✅ VisibilityCalculator instanziiert');
+
+                // Test MapManager
+                // Note: This might fail because map div doesn't exist
+                try {
+                    const mapManager = new MapManager();
+                    addTestResult('✅ MapManager instanziiert');
+                } catch (e) {
+                    addTestResult('⚠️ MapManager Fehler: ' + e.message, 'warning');
+                }
+
+                // Test WindradRenderer
+                const windradRenderer = new WindradRenderer();
+                addTestResult('✅ WindradRenderer instanziiert');
+
+                // Test CameraController
+                const cameraController = new CameraController();
+                addTestResult('✅ CameraController instanziiert');
+
+                // Test WindradARApp
+                const app = new WindradARApp();
+                addTestResult('✅ WindradARApp instanziiert');
+
+            } catch (e) {
+                addTestResult('❌ Fehler beim Instanziieren: ' + e.message, 'error');
+                addTestResult('<pre>' + e.stack + '</pre>', 'error');
+            }
+        }
+
+        async function testPermissions() {
+            tests.innerHTML = '';
+            addTestResult('<strong>Berechtigungs-Test:</strong>');
+
+            try {
+                const controller = new CameraController();
+                addTestResult('✅ CameraController erstellt');
+
+                addTestResult('⏳ Frage Berechtigungen ab...', 'warning');
+
+                const result = await controller.requestPermissions();
+                addTestResult('✅ Berechtigungen erteilt: ' + result);
+
+            } catch (e) {
+                addTestResult('❌ Berechtigungs-Fehler: ' + e.message, 'error');
+                addTestResult('<pre>' + e.stack + '</pre>', 'error');
+            }
+        }
+
+        // Capture all errors
+        window.addEventListener('error', (event) => {
+            addResult(`❌ JavaScript-Fehler: ${event.message}`, 'error');
+            addResult(`   Datei: ${event.filename}:${event.lineno}`, 'error');
+            console.error('Caught error:', event);
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            addResult(`❌ Promise-Fehler: ${event.reason}`, 'error');
+            console.error('Unhandled rejection:', event);
+        });
+    </script>
+</body>
+</html>
