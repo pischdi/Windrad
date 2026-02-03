@@ -18,19 +18,42 @@ class CameraController {
      */
     async requestPermissions() {
         try {
-            // Request compass permission first (iOS requirement)
-            if (typeof DeviceOrientationEvent !== 'undefined' && 
+            // 1. Request compass permission first (iOS requirement)
+            if (typeof DeviceOrientationEvent !== 'undefined' &&
                 typeof DeviceOrientationEvent.requestPermission === 'function') {
                 const permission = await DeviceOrientationEvent.requestPermission();
                 if (permission !== 'granted') {
                     throw new Error('Kompass-Berechtigung wurde verweigert.');
                 }
+                log('Kompass-Berechtigung erteilt');
             }
-            
+
+            // 2. Check if camera API is available
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('Kamera-API nicht verfügbar. Verwenden Sie HTTPS.');
+            }
+
+            // 3. Test camera permission by requesting stream (then immediately stop)
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' }
+            });
+            stream.getTracks().forEach(track => track.stop());  // Stop immediately
+            log('Kamera-Berechtigung erteilt');
+
             return true;
-            
+
         } catch (error) {
             console.error('Permission error:', error);
+
+            // Provide detailed error messages
+            if (error.name === 'NotAllowedError') {
+                throw new Error('Kamera-Berechtigung verweigert. Bitte in den Browser-Einstellungen erlauben.');
+            } else if (error.name === 'NotFoundError') {
+                throw new Error('Keine Kamera gefunden.');
+            } else if (error.name === 'SecurityError') {
+                throw new Error('HTTPS erforderlich. Öffnen Sie die App über https://');
+            }
+
             throw error;
         }
     }
@@ -103,16 +126,35 @@ class CameraController {
      * Handle device orientation changes
      */
     _handleOrientation(event) {
+        let newOrientation = null;
+
         // iOS uses webkitCompassHeading
         if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
-            this.deviceOrientation = event.webkitCompassHeading;
+            newOrientation = event.webkitCompassHeading;
         }
         // Android uses alpha (inverted)
-        else if (event.alpha !== null) {
-            this.deviceOrientation = 360 - event.alpha;
+        else if (event.alpha !== null && event.alpha !== undefined) {
+            newOrientation = 360 - event.alpha;
         }
-        
-        this._updateDirectionIndicator();
+
+        // Only update if we have a valid value
+        if (newOrientation !== null) {
+            this.deviceOrientation = newOrientation;
+            this._updateDirectionIndicator();
+        } else {
+            // Compass not available - show error message
+            const compassDisplay = document.getElementById('compassDisplay');
+            const directionText = document.getElementById('directionText');
+
+            if (compassDisplay) {
+                compassDisplay.textContent = 'Kompass nicht verfügbar';
+            }
+            if (directionText) {
+                directionText.textContent = '⚠️ Gerät hat keinen Magnetometer';
+            }
+
+            error('Kompass-Daten nicht verfügbar. Gerät hat möglicherweise keinen Magnetometer.');
+        }
     }
 
     /**

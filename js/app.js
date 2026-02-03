@@ -60,28 +60,58 @@ class WindradARApp {
     async _getUserLocation() {
         return new Promise((resolve, reject) => {
             if (!navigator.geolocation) {
-                reject(new Error('Geolocation wird von diesem Browser nicht unterstützt.'));
+                alert('⚠️ GPS nicht verfügbar. Verwende Standard-Standort Neuhausen/Spree.');
+                this.mapManager.setUserLocation(
+                    CONFIG.MAP.defaultLocation.lat,
+                    CONFIG.MAP.defaultLocation.lng
+                );
+                resolve();
                 return;
             }
-            
+
             navigator.geolocation.getCurrentPosition(
                 position => {
                     const lat = position.coords.latitude;
                     const lng = position.coords.longitude;
-                    
+
                     this.mapManager.setUserLocation(lat, lng);
-                    log('GPS location:', lat, lng);
+                    log('GPS location:', lat, lng, '(Genauigkeit: ' + Math.round(position.coords.accuracy) + 'm)');
                     resolve();
                 },
                 error => {
                     console.error('GPS Error:', error);
-                    // Use default location
+
+                    // Provide detailed error message
+                    let message = '⚠️ GPS-Fehler: ';
+                    switch (error.code) {
+                        case 1:
+                            message += 'Standort-Berechtigung verweigert.';
+                            break;
+                        case 2:
+                            message += 'Standort nicht verfügbar.';
+                            break;
+                        case 3:
+                            message += 'Timeout beim GPS-Abruf.';
+                            break;
+                        default:
+                            message += error.message;
+                    }
+                    message += '\n\nVerwende Standard-Standort (Neuhausen/Spree).';
+
+                    alert(message);
+
+                    // Use default location as fallback
                     this.mapManager.setUserLocation(
                         CONFIG.MAP.defaultLocation.lat,
                         CONFIG.MAP.defaultLocation.lng
                     );
                     log('Using default location');
                     resolve();
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 60000
                 }
             );
         });

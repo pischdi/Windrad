@@ -57,9 +57,9 @@ const CONFIG = {
     
     // User Eye Level
     USER_EYE_HEIGHT: 1.7,  // Meter über Boden
-    
+
     // Debug Mode
-    DEBUG: false
+    DEBUG: true  // ✅ Aktiviert für detailliertes Logging in der Konsole
 };
 
 // Logging Helper
