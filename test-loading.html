@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🔍 Lade-Test</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body {
             font-family: monospace;
@@ -40,6 +41,9 @@
     <button onclick="testPermissions()">Berechtigungen testen</button>
     <button onclick="window.location.reload()">🔄 Neu laden</button>
     <div id="tests"></div>
+
+    <!-- Leaflet JS (required for MapManager) -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <!-- Load scripts in order -->
     <script src="js/config.js?v=2"></script>
