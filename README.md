@@ -1,289 +1,319 @@
-# 🌬️ Windrad AR - Neuhausen/Spree
+# 🌬️ Windrad AR mit Brandenburg DOM
 
-Web-basierte AR-Visualisierung für geplante Windkraftanlagen in der Gemeinde Neuhausen/Spree.
-
-**Live-Demo:** https://pischdi.github.io/Windrad/
+Augmented Reality Visualisierung von Windrädern mit **Brandenburg Digitales Oberflächenmodell (DOM)** Integration.
 
 ---
 
-## 📱 **Für Bürger**
+## ✨ FEATURES
 
-Nutzen Sie Ihr Smartphone, um geplante Windkraftanlagen direkt in Ihrer Umgebung zu visualisieren!
+### 🗻 **Brandenburg Oberflächenmodell**
+- ✅ **KOSTENLOS** (Open Data Brandenburg)
+- ✅ **MIT Bäumen & Gebäuden** (nicht nur Gelände!)
+- ✅ **1m Auflösung** via WMS
+- ✅ **0.2m Auflösung** möglich (LAZ Download)
+- ✅ **Fallback** auf OpenElevation (unbegrenzt & kostenlos)
 
-### **So funktioniert's:**
+### 📊 **Sichtbarkeitsanalyse**
+- 🔍 **Höhenprofil** zwischen User und Windrad
+- 🌲 **Vegetation-Erkennung** (Wälder, Bäume)
+- 🏠 **Gebäude-Erkennung** (Häuser, Strukturen)
+- ⛰️ **Gelände-Verdeckung** (Hügel, Berge)
+- 📈 **Visuelles Profil** (Canvas-Grafik)
 
-1. Öffnen Sie: **https://pischdi.github.io/Windrad/**
-2. Wählen Sie einen Entfernungsfilter (5/10/20 km)
-3. Erlauben Sie Kamera- und Standortzugriff
-4. Richten Sie Ihr Handy zum Horizont
-5. Das Windrad erscheint in der richtigen Richtung
+### 🎨 **3D Windrad Rendering**
+- 🌬️ **Realistische Darstellung** (Turm, Gondel, Rotor)
+- ⚠️ **Teilweise Sichtbarkeit** (nur sichtbarer Teil)
+- ❌ **Vollständig verdeckt** (Warnung)
+- 📸 **Foto-Export** mit Overlay
 
-### **QR-Code:**
+### 🗺️ **Interaktive Karte**
+- 📍 **GPS-Lokalisierung**
+- 🎯 **Windrad-Auswahl**
+- 📏 **Entfernungen & Richtungen**
+- 🔗 **Sichtlinie** zwischen User & Windrad
 
-```
-Scannen Sie diesen Code mit Ihrer Kamera-App:
-[Erstellen Sie einen QR-Code für: https://pischdi.github.io/Windrad/]
-```
-
----
-
-## 👨‍💼 **Für Administratoren**
-
-### **Windräder bearbeiten:**
-
-**Methode 1: Admin-Seite (Lokal)**
-
-1. Öffnen Sie `admin.html` lokal im Browser
-2. Passwort: `neuhausen2025`
-3. Windräder hinzufügen/bearbeiten
-4. **"CSV herunterladen"** klicken
-5. Auf GitHub hochladen (siehe unten)
-
-**Methode 2: Direkt auf GitHub**
-
-1. Öffnen Sie [windraeder.csv](windraeder.csv)
-2. Klicken Sie auf das Stift-Symbol (Edit)
-3. Bearbeiten Sie die Daten
-4. "Commit changes" klicken
+### 📱 **Mobile-Optimiert**
+- 📸 **Kamera-Integration**
+- 🧭 **Kompass-Navigation**
+- ✓ **Perfekte Ausrichtung** (Echtzeit-Feedback)
+- 💾 **Foto-Download**
 
 ---
 
-## 📤 **CSV auf GitHub hochladen**
+## 📦 INSTALLATION
 
-Nach dem Bearbeiten in `admin.html`:
-
-1. **CSV herunterladen** (Button in Admin)
-2. Öffnen Sie https://github.com/pischdi/Windrad
-3. Klicken Sie auf `windraeder.csv`
-4. Klicken Sie rechts auf das **Stift-Symbol** ✏️
-5. Löschen Sie den alten Inhalt
-6. Öffnen Sie die heruntergeladene CSV mit Editor
-7. Kopieren Sie alles (Strg+A, Strg+C)
-8. Fügen Sie auf GitHub ein (Strg+V)
-9. Unten: **"Commit changes"** klicken
-10. Fertig! Nach ~1 Minute überall verfügbar ✅
-
----
-
-## 📝 **CSV-Format**
-
-```csv
-id,name,hubHeight,rotorDiameter,lat,lon
-1769757500000,Windpark Nord,166,150,51.5833,14.2833
-1769757600000,Windpark Süd,164,149,51.5700,14.2900
-```
-
-**Spalten:**
-- `id`: Eindeutige ID (Unix-Timestamp)
-- `name`: Name des Windparks
-- `hubHeight`: Nabenhöhe in Metern
-- `rotorDiameter`: Rotordurchmesser in Metern
-- `lat`: Breitengrad (Latitude)
-- `lon`: Längengrad (Longitude)
-
----
-
-## 🛠️ **Technische Details**
-
-### **Architektur:**
-
-```
-GitHub Repository (pischdi/Windrad)
-├── index.html         → Viewer (AR-Ansicht für Bürger)
-├── admin.html         → Admin (Windräder verwalten)
-├── windraeder.csv     → Daten (automatisch geladen)
-└── README.md          → Diese Anleitung
-```
-
-### **Datenfluss:**
-
-```
-Admin (lokal)
-    ↓ Bearbeiten
-CSV herunterladen
-    ↓ Manuell hochladen
-GitHub Repository
-    ↓ GitHub Pages
-https://pischdi.github.io/Windrad/
-    ↓ Lädt CSV via Raw URL
-https://raw.githubusercontent.com/pischdi/Windrad/main/windraeder.csv
-    ↓ Zeigt an
-Viewer (alle Geräte)
-```
-
-### **URLs:**
-
-- **Viewer:** https://pischdi.github.io/Windrad/
-- **Admin:** https://pischdi.github.io/Windrad/admin.html
-- **CSV Raw:** https://raw.githubusercontent.com/pischdi/Windrad/main/windraeder.csv
-- **Repository:** https://github.com/pischdi/Windrad
-
----
-
-## 🔐 **Sicherheit**
-
-### **Admin-Passwort ändern:**
-
-Öffnen Sie `admin.html` in einem Texteditor und ändern Sie Zeile 290:
-
-```javascript
-const ADMIN_PASSWORD = 'dein_neues_passwort';  // Ändern Sie dies!
-```
-
-Speichern und auf GitHub hochladen.
-
-### **Zugriffskontrolle:**
-
-- ✅ **Viewer (index.html):** Öffentlich für alle Bürger
-- 🔒 **Admin (admin.html):** Passwortgeschützt
-- 📖 **CSV-Datei:** Öffentlich lesbar (notwendig für Viewer)
-- 🔐 **GitHub Repository:** Nur Sie können bearbeiten
-
-**Hinweis:** Die CSV-Datei MUSS öffentlich sein, damit der Viewer sie laden kann!
-
----
-
-## 📱 **Browser-Kompatibilität**
-
-### **Getestet mit:**
-
-✅ **Chrome (Android)**
-✅ **Safari (iOS)**
-✅ **Samsung Internet**
-✅ **Edge (Desktop/Mobile)**
-
-### **Einschränkungen:**
-
-❌ **Firefox Mobile:** Eingeschränkte AR-Funktionalität
-❌ **Alte Browser:** Benötigt moderne Browser (ab 2020)
-
-### **Anforderungen:**
-
-- 📷 Kamera-Zugriff
-- 📍 GPS/Standort-Zugriff
-- 🧭 Bewegungssensoren (Kompass)
-- 🌐 HTTPS (automatisch durch GitHub Pages)
-
----
-
-## 🐛 **Fehlersuche**
-
-### **Problem: "Keine Windrad-Daten gefunden"**
-
-**Ursache:** CSV kann nicht geladen werden
-
-**Lösung:**
-1. Prüfen Sie: https://raw.githubusercontent.com/pischdi/Windrad/main/windraeder.csv
-2. Sollte CSV-Inhalt zeigen
-3. Falls 404: Datei fehlt → Hochladen
-4. Falls Fehler: Datei beschädigt → Neu hochladen
-
-### **Problem: "Berechtigung verweigert" (Kamera/GPS)**
-
-**Lösung:**
-1. Klicken Sie auf **Schloss-Symbol 🔒** in der Adressleiste
-2. Ändern Sie "Kamera" und "Standort" auf **"Zulassen"**
-3. Laden Sie die Seite neu (F5)
-4. Erneut versuchen
-
-### **Problem: "Windrad erscheint nicht"**
-
-**Mögliche Ursachen:**
-1. ❌ Nicht in richtige Richtung schauen → Langsam im Kreis drehen
-2. ❌ GPS ungenau (±50m normal) → 30-60 Sekunden warten
-3. ❌ Windrad zu weit weg → Filter auf "Alle anzeigen" ändern
-4. ❌ Kompass nicht kalibriert → Handy in 8er-Bewegung
-
-### **Problem: Admin-Seite fragt nicht nach Passwort**
-
-**Ursache:** Browser hat Passwort gespeichert
-
-**Lösung:** Inkognito-Modus verwenden
-
----
-
-## 📊 **Statistiken**
-
-- **Entwickelt für:** Gemeinde Neuhausen/Spree, Brandenburg
-- **Hosting:** GitHub Pages (kostenlos)
-- **Technologie:** HTML5, JavaScript, CSS3
-- **AR-Engine:** Custom Canvas-basiertes Rendering
-- **Karten:** OpenStreetMap + Leaflet
-
----
-
-## 🔄 **Updates & Wartung**
-
-### **Windräder aktualisieren:**
-
-1. Bearbeiten Sie `windraeder.csv` (siehe oben)
-2. Commit → Push
-3. Warten Sie ~1 Minute
-4. Automatisch auf allen Geräten verfügbar! ✅
-
-### **Design ändern:**
-
-1. Bearbeiten Sie `index.html` oder `admin.html`
-2. Commit → Push
-3. Warten Sie ~1 Minute
-4. Änderungen sind live
-
-### **Backup erstellen:**
+### **Option 1: GitHub Pages (Empfohlen)**
 
 ```bash
-# Gesamtes Repository klonen
+# 1. Repository clonen
 git clone https://github.com/pischdi/Windrad.git
+cd Windrad
 
-# Oder nur CSV herunterladen
-curl https://raw.githubusercontent.com/pischdi/Windrad/main/windraeder.csv > backup.csv
+# 2. Projekt-Dateien kopieren
+cp -r windrad-ar-elevation/* .
+
+# 3. GitHub Pages aktivieren
+# Settings → Pages → Source: main branch
+
+# 4. Öffnen
+https://pischdi.github.io/index.html
+```
+
+### **Option 2: Lokaler Server**
+
+```bash
+# Python 3
+python3 -m http.server 8000
+
+# Node.js
+npx http-server -p 8000
+
+# PHP
+php -S localhost:8000
+```
+
+Dann öffnen: `http://localhost:8000`
+
+---
+
+## 📂 PROJEKT-STRUKTUR
+
+```
+windrad-ar-elevation/
+├── 📄 index.html                      # Haupt-HTML
+├── 📁 css/
+│   └── styles.css                     # Alle Styles
+├── 📁 js/
+│   ├── config.js                      # Konfiguration
+│   ├── elevation-service.js           # Brandenburg DOM Service
+│   ├── visibility-calculator.js      # Sichtbarkeits-Logik
+│   ├── map-manager.js                 # Leaflet Map
+│   ├── windrad-renderer.js            # 3D Rendering
+│   ├── camera-controller.js           # Kamera/Kompass
+│   └── app.js                         # Main Application
+└── 📄 README.md                       # Diese Datei
 ```
 
 ---
 
-## 📞 **Kontakt & Support**
+## ⚙️ KONFIGURATION
 
-**Für Bürger:**
-- Bei technischen Problemen: Gemeinde Neuhausen/Spree kontaktieren
-- Bei Fragen zu Windrädern: Gemeinderat
+### **js/config.js**
 
-**Für Administratoren:**
-- GitHub Issues: https://github.com/pischdi/Windrad/issues
-- Dokumentation: Diese README
-
----
-
-## 📄 **Lizenz**
-
-Entwickelt für die Gemeinde Neuhausen/Spree zur Bürgerbeteiligung bei Windkraft-Projekten.
-
-Frei verwendbar für Gemeinden und öffentliche Einrichtungen zur Windkraft-Visualisierung.
-
----
-
-## 🎯 **Roadmap**
-
-### **Geplante Features:**
-
-- [ ] Multi-Windrad-Anzeige (mehrere gleichzeitig)
-- [ ] Offline-Modus (Service Worker)
-- [ ] Screenshots/Fotos mit AR-Overlay
-- [ ] Vergleichsmodus (mit/ohne Windräder)
-- [ ] Export für andere Gemeinden
-
-### **Bereits implementiert:**
-
-- [x] AR-Visualisierung mit Kamera
-- [x] GPS-basierte Positionierung
-- [x] Kompass-Integration
-- [x] Entfernungsfilter
-- [x] Mobile-optimiert
-- [x] Admin-Interface
-- [x] GitHub Pages Hosting
-- [x] CSV-basierte Datenverwaltung
+```javascript
+const CONFIG = {
+    // Brandenburg DOM WMS
+    BRANDENBURG_DOM: {
+        wmsUrl: 'https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms',
+        layer: 'by_dop20c',
+        fallbackUrl: 'https://api.open-elevation.com/api/v1/lookup'
+    },
+    
+    // CSV Windräder
+    CSV_URL: 'https://raw.githubusercontent.com/pischdi/Windrad/main/windraeder.csv',
+    
+    // Elevation Settings
+    ELEVATION: {
+        samples: 20,              // Anzahl Messpunkte
+        cacheEnabled: true,       // localStorage Cache
+        cacheDuration: 86400000   // 24 Stunden
+    },
+    
+    // Map Settings
+    MAP: {
+        defaultLocation: { lat: 51.6724, lng: 14.4354 }, // Neuhausen
+        defaultZoom: 13
+    }
+};
+```
 
 ---
 
-**Entwickelt für Gemeinderat Neuhausen/Spree**  
-**Januar 2026 - GitHub Pages Edition**
+## 🚀 VERWENDUNG
 
-🌍 **Live:** https://pischdi.github.io/Windrad/
+### **1. Windrad Auswählen**
+- Karte öffnen
+- Windrad auf Karte anklicken ODER
+- Windrad aus Liste wählen
+
+### **2. Sichtbarkeit Prüfen**
+- Automatische Analyse startet
+- Höhenprofil wird angezeigt
+- Sichtbarkeits-Status erscheint
+
+### **3. Foto Aufnehmen**
+- "📸 Foto aufnehmen" klicken
+- Kamera ausrichten (folge Pfeilen)
+- Bei "Perfekt!" → Aufnehmen
+- Foto wird mit Windrad-Overlay gespeichert
+
+---
+
+## 🔧 TECHNISCHE DETAILS
+
+### **Brandenburg DOM Integration**
+
+```javascript
+// Elevation Service nutzt Brandenburg WMS
+const profile = await elevationService.getProfile(
+    userLat, userLon,
+    turbineLat, turbineLon,
+    20 // Samples
+);
+
+// Fallback auf OpenElevation bei Fehler
+// Kostenlos, unbegrenzt, weltweit verfügbar
+```
+
+### **Sichtbarkeits-Algorithmus**
+
+```javascript
+// 1. Sichtlinie berechnen
+const sightLineSlope = (turbineTop - userEye) / distance;
+
+// 2. Jeden Geländepunkt prüfen
+for (point of profile) {
+    const expectedHeight = userEye + (sightLineSlope * point.distance);
+    if (point.elevation > expectedHeight) {
+        // Verdeckt!
+        blocked = true;
+    }
+}
+
+// 3. Sichtbare Höhe berechnen
+visibleHeight = totalHeight - blockedHeight;
+visiblePercent = (visibleHeight / totalHeight) * 100;
+```
+
+### **3D Rendering**
+
+```javascript
+// Windrad mit Perspektive zeichnen
+const pixelHeight = (visibleHeight / distanceMeters) * 500;
+
+// Nur sichtbaren Teil rendern
+if (status === 'partial') {
+    drawFromTop(visibleHeight);
+} else if (status === 'blocked') {
+    showBlockedMessage();
+} else {
+    drawCompleteTurbine();
+}
+```
+
+---
+
+## 💡 OPTIMIERUNGEN
+
+### **Performance**
+
+```javascript
+// 1. localStorage Cache
+// Elevation-Profile werden 24h gecacht
+
+// 2. Lazy Loading
+// Nur aktive Windräder werden berechnet
+
+// 3. Debouncing
+// Kompass-Updates gedrosselt
+```
+
+### **Datenquellen**
+
+```
+Primary:   Brandenburg DOM WMS (1m, kostenlos)
+Fallback:  OpenElevation API (30m, kostenlos)
+Future:    LAZ Download (0.2m, offline)
+```
+
+---
+
+## 📈 FEATURE ROADMAP
+
+### **Phase 2: Advanced DOM**
+- [ ] LAZ-Download für 0.2m Auflösung
+- [ ] Offline-Modus mit lokalem DOM
+- [ ] CloudCompare Integration
+- [ ] Baumhöhen-Analyse
+
+### **Phase 3: Multi-Platform**
+- [ ] iOS App (Swift)
+- [ ] Android App (Kotlin)
+- [ ] Desktop App (Electron)
+
+### **Phase 4: Social Features**
+- [ ] Foto-Galerie
+- [ ] Community-Sharing
+- [ ] Kommentare & Bewertungen
+
+---
+
+## 🐛 TROUBLESHOOTING
+
+### **Kamera startet nicht**
+```
+Problem: "Kamera konnte nicht gestartet werden"
+Lösung:  
+1. HTTPS erforderlich (GitHub Pages ✓)
+2. Kamera-Berechtigung erteilen
+3. Browser-Kompatibilität prüfen
+```
+
+### **Kompass funktioniert nicht**
+```
+Problem: Richtungs-Anzeige bleibt bei "--°"
+Lösung:
+1. Kompass-Berechtigung erteilen (iOS)
+2. Gerät kalibrieren (8er-Bewegung)
+3. Im Freien testen (Magnetfeld)
+```
+
+### **Elevation API Fehler**
+```
+Problem: "Brandenburg WMS failed"
+Lösung: Automatischer Fallback auf OpenElevation
+Info: Beide Services kostenlos & unbegrenzt
+```
+
+### **GPS ungenau**
+```
+Problem: Falsche Position auf Karte
+Lösung:
+1. GPS aktivieren
+2. Im Freien testen (kein Gebäude)
+3. Standort-Berechtigung prüfen
+```
+
+---
+
+## 📞 SUPPORT
+
+**GitHub Issues:** https://github.com/pischdi/Windrad/issues
+**E-Mail:** [Deine E-Mail]
+
+---
+
+## 📜 LIZENZ
+
+**MIT License**
+
+Dieses Projekt nutzt:
+- **OpenStreetMap** (ODbL)
+- **OpenTopoMap** (CC-BY-SA)
+- **Brandenburg Open Data** (Datenlizenz Deutschland)
+- **Leaflet** (BSD-2-Clause)
+- **OpenElevation** (Public Domain)
+
+---
+
+## 🙏 CREDITS
+
+- **LGB Brandenburg** - Digitales Oberflächenmodell (DOM)
+- **OpenStreetMap Contributors**
+- **OpenTopoMap Team**
+- **OpenElevation Project**
+- **Leaflet.js Team**
+
+---
+
+**Made with ❤️ in Brandenburg**
