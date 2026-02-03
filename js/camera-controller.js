@@ -213,21 +213,30 @@ class CameraController {
         // Draw windrad overlay
         renderer.setVisibilityData(visibilityData);
         renderer.drawWindrad(ctx, canvas.width, canvas.height, turbine, userLocation);
-        
-        // Download
+
+        // Get photo data
         const dataURL = canvas.toDataURL('image/jpeg', 0.95);
-        const link = document.createElement('a');
-        link.download = `windrad_${turbine.name}_${Date.now()}.jpg`;
-        link.href = dataURL;
-        link.click();
-        
-        log('Photo taken and downloaded');
-        
+
+        // Store for download/share functions
+        window.currentPhotoData = dataURL;
+        window.currentPhotoFilename = `windrad_${turbine.name}_${Date.now()}.jpg`;
+
+        // Show photo result view
+        const resultImage = document.getElementById('resultImage');
+        const photoResult = document.getElementById('photoResult');
+
+        if (resultImage && photoResult) {
+            resultImage.src = dataURL;
+            photoResult.classList.add('active');
+        }
+
+        log('Photo taken and displayed');
+
         // Trigger callback
         if (this.onPhotoTaken) {
             this.onPhotoTaken(dataURL);
         }
-        
+
         this.stopCamera();
     }
 

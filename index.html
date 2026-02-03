@@ -99,7 +99,30 @@
     </div>
 
     <!-- Result Canvas (Hidden) -->
-    <canvas id="resultCanvas"></canvas>
+    <canvas id="resultCanvas" style="display: none;"></canvas>
+
+    <!-- Photo Result View -->
+    <div class="photo-result" id="photoResult">
+        <div class="result-header">
+            <h2>📷 Ihr Foto mit Windrad</h2>
+        </div>
+
+        <div class="result-image-container">
+            <img id="resultImage" src="" alt="Windrad Foto" />
+        </div>
+
+        <div class="result-controls">
+            <button class="btn btn-primary" onclick="downloadPhoto()">
+                💾 Foto speichern
+            </button>
+            <button class="btn btn-secondary" onclick="sharePhoto()">
+                📤 Teilen
+            </button>
+            <button class="btn btn-secondary" onclick="closePhotoResult()">
+                ✕ Schließen
+            </button>
+        </div>
+    </div>
 
     <!-- Loading Overlay -->
     <div class="loading" id="loading">
@@ -119,5 +142,73 @@
     <script src="js/windrad-renderer.js"></script>
     <script src="js/camera-controller.js"></script>
     <script src="js/app.js"></script>
+
+    <!-- Photo Result Functions -->
+    <script>
+        function downloadPhoto() {
+            if (!window.currentPhotoData || !window.currentPhotoFilename) {
+                alert('Kein Foto verfügbar');
+                return;
+            }
+
+            const link = document.createElement('a');
+            link.download = window.currentPhotoFilename;
+            link.href = window.currentPhotoData;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            console.log('Photo download triggered');
+        }
+
+        async function sharePhoto() {
+            if (!window.currentPhotoData || !window.currentPhotoFilename) {
+                alert('Kein Foto verfügbar');
+                return;
+            }
+
+            // Check if Web Share API is available
+            if (navigator.share && navigator.canShare) {
+                try {
+                    // Convert data URL to blob
+                    const response = await fetch(window.currentPhotoData);
+                    const blob = await response.blob();
+                    const file = new File([blob], window.currentPhotoFilename, { type: 'image/jpeg' });
+
+                    if (navigator.canShare({ files: [file] })) {
+                        await navigator.share({
+                            files: [file],
+                            title: 'Windrad AR Foto',
+                            text: 'Foto von Windrad AR Visualisierung'
+                        });
+                        console.log('Photo shared successfully');
+                    } else {
+                        // Fallback to download if can't share files
+                        downloadPhoto();
+                    }
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.error('Share error:', err);
+                        alert('Teilen fehlgeschlagen. Verwenden Sie stattdessen "Foto speichern".');
+                    }
+                }
+            } else {
+                // Fallback to download
+                alert('Teilen wird nicht unterstützt. Foto wird heruntergeladen.');
+                downloadPhoto();
+            }
+        }
+
+        function closePhotoResult() {
+            const photoResult = document.getElementById('photoResult');
+            if (photoResult) {
+                photoResult.classList.remove('active');
+            }
+
+            // Clear photo data
+            window.currentPhotoData = null;
+            window.currentPhotoFilename = null;
+        }
+    </script>
 </body>
 </html>
