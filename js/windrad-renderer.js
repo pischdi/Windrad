@@ -84,6 +84,11 @@ class WindradRenderer {
         
         // Draw label
         this._drawLabel(ctx, x, y + 50, width, turbine, distance, visibleHeight);
+
+        // Draw DSM warning if using fallback
+        if (this.visibilityData && !this.visibilityData.isDSM) {
+            this._drawDSMWarning(ctx, width);
+        }
     }
 
     /**
@@ -280,6 +285,42 @@ class WindradRenderer {
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 4;
         ctx.fillText('⛰️ Durch Gelände verdeckt', width / 2, 100);
+        ctx.shadowColor = 'transparent';
+    }
+
+    /**
+     * Draw DSM warning (when using DTM fallback without trees/buildings)
+     */
+    _drawDSMWarning(ctx, width) {
+        const padding = 15;
+        const warningHeight = 60;
+        const warningWidth = Math.min(width * 0.9, 500);
+        const x = width / 2;
+        const y = 20;
+
+        // Warning background
+        ctx.fillStyle = 'rgba(255, 152, 0, 0.95)';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 10;
+        ctx.fillRect(x - warningWidth/2, y, warningWidth, warningHeight);
+        ctx.shadowColor = 'transparent';
+
+        // Warning border
+        ctx.strokeStyle = 'rgba(255, 193, 7, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - warningWidth/2, y, warningWidth, warningHeight);
+
+        // Warning text
+        ctx.fillStyle = 'white';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 4;
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚠️ Ohne Wald-/Gebäudedaten', x, y + 25);
+
+        ctx.font = '14px Arial';
+        ctx.fillText('LAZ-Daten für präzise Sichtbarkeit benötigt', x, y + 45);
+
         ctx.shadowColor = 'transparent';
     }
 }

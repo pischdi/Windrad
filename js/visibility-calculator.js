@@ -87,7 +87,8 @@ class VisibilityCalculator {
                 userElevation: userElevation,
                 turbineElevation: turbineElevation,
                 turbineTopElevation: turbineTopElevation,
-                distance: distance
+                distance: distance,
+                isDSM: profile.isDSM || false  // Digital Surface Model (with trees/buildings)
             };
             
         } catch (error) {
