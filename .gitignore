@@ -50,6 +50,9 @@ yarn-error.log*
 *.temp
 .cache/
 
+# Archive (alte/nicht mehr benötigte Dateien)
+archive/
+
 # macOS
 .DS_Store
 .AppleDouble
