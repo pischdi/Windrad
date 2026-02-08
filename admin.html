@@ -341,11 +341,17 @@
                 <div id="map"></div>
                 
                 <div id="addForm" style="display: none;">
+                    <!-- Tile Info -->
+                    <div class="alert alert-info" id="tileInfo" style="margin-bottom: 1rem;">
+                        <strong>📦 Benötigte Höhendaten-Tiles:</strong>
+                        <div id="tileList" style="margin-top: 0.5rem; font-family: monospace; font-size: 0.9rem;"></div>
+                    </div>
+
                     <div class="form-group">
                         <label>Name:</label>
                         <input type="text" class="form-control" id="turbineName" placeholder="z.B. Windpark Nord">
                     </div>
-                    
+
                     <div class="form-group">
                         <label>WEA-Typ (optional - zum Auto-Ausfüllen):</label>
                         <select class="form-control" id="turbineType" onchange="fillSpecs()">
@@ -506,27 +512,89 @@
                 map.on('click', function(e) {
                     selectedLat = e.latlng.lat;
                     selectedLon = e.latlng.lng;
-                    
+
                     if (marker) {
                         map.removeLayer(marker);
                     }
-                    
+
                     marker = L.marker([selectedLat, selectedLon], {
                         draggable: true
                     }).addTo(map);
-                    
+
                     marker.on('dragend', function(e) {
                         const pos = e.target.getLatLng();
                         selectedLat = pos.lat;
                         selectedLon = pos.lng;
+                        updateTileInfo(selectedLat, selectedLon);
                     });
-                    
+
                     document.getElementById('addForm').style.display = 'block';
                     document.getElementById('turbineName').focus();
+                    updateTileInfo(selectedLat, selectedLon);
                 });
             }
         }
         
+        // Convert WGS84 to UTM33N (EPSG:25833)
+        function convertToUTM(lat, lng) {
+            const a = 6378137.0;
+            const k0 = 0.9996;
+            const e = 0.081819190842622;
+
+            const latRad = lat * Math.PI / 180;
+            const lngRad = lng * Math.PI / 180;
+            const lngOrigin = 15 * Math.PI / 180;
+
+            const N = a / Math.sqrt(1 - e * e * Math.sin(latRad) * Math.sin(latRad));
+            const T = Math.tan(latRad) * Math.tan(latRad);
+            const C = e * e * Math.cos(latRad) * Math.cos(latRad) / (1 - e * e);
+            const A = (lngRad - lngOrigin) * Math.cos(latRad);
+
+            const x = k0 * N * (A + (1 - T + C) * A * A * A / 6);
+            const y = k0 * N * latRad;
+
+            return { x: 500000 + x, y: y };
+        }
+
+        // Calculate required tiles for a turbine location
+        function getRequiredTiles(lat, lng, radiusKm = 5) {
+            const utm = convertToUTM(lat, lng);
+            const radiusM = radiusKm * 1000;
+
+            // Calculate bounding box in UTM
+            const minX = utm.x - radiusM;
+            const maxX = utm.x + radiusM;
+            const minY = utm.y - radiusM;
+            const maxY = utm.y + radiusM;
+
+            // Calculate tile IDs (1000m × 1000m tiles)
+            const minTileX = Math.floor(minX / 1000);
+            const maxTileX = Math.floor(maxX / 1000);
+            const minTileY = Math.floor(minY / 1000);
+            const maxTileY = Math.floor(maxY / 1000);
+
+            const tiles = [];
+            for (let tileX = minTileX; tileX <= maxTileX; tileX++) {
+                for (let tileY = minTileY; tileY <= maxTileY; tileY++) {
+                    tiles.push(`tile_${tileX}_${tileY}.bin`);
+                }
+            }
+
+            return tiles;
+        }
+
+        // Update tile info display
+        function updateTileInfo(lat, lng) {
+            const tiles = getRequiredTiles(lat, lng, 5);
+            const tileListEl = document.getElementById('tileList');
+
+            let html = `<strong>Sichtbereich:</strong> 5 km Radius<br>`;
+            html += `<strong>Benötigte Tiles:</strong> ${tiles.length}<br><br>`;
+            html += tiles.join('<br>');
+
+            tileListEl.innerHTML = html;
+        }
+
         // Fill specs
         function fillSpecs() {
             const type = document.getElementById('turbineType').value;
@@ -537,7 +605,7 @@
                 'enercon_e160': { height: 166, rotor: 160 },
                 'siemens_sg170': { height: 165, rotor: 170 }
             };
-            
+
             if (specs[type]) {
                 document.getElementById('hubHeight').value = specs[type].height;
                 document.getElementById('rotorDiameter').value = specs[type].rotor;

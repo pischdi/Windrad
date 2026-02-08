@@ -1,319 +1,445 @@
-# 🌬️ Windrad AR mit Brandenburg DOM
+# 🌬️ Windrad AR - Brandenburg
 
-Augmented Reality Visualisierung von Windrädern mit **Brandenburg Digitales Oberflächenmodell (DOM)** Integration.
+**Augmented Reality Visualisierung von Windkraftanlagen mit präziser Sichtbarkeitsberechnung**
 
----
+Windrad AR ermöglicht es Bürgern in Brandenburg, geplante oder bestehende Windkraftanlagen (WKA) direkt in der realen Umgebung zu visualisieren. Die App nutzt Brandenburg's Digitales Oberflächenmodell (DOM) für präzise Line-of-Sight Berechnungen unter Berücksichtigung von Wäldern und Gebäuden.
 
-## ✨ FEATURES
+## 📱 Features
 
-### 🗻 **Brandenburg Oberflächenmodell**
-- ✅ **KOSTENLOS** (Open Data Brandenburg)
-- ✅ **MIT Bäumen & Gebäuden** (nicht nur Gelände!)
-- ✅ **1m Auflösung** via WMS
-- ✅ **0.2m Auflösung** möglich (LAZ Download)
-- ✅ **Fallback** auf OpenElevation (unbegrenzt & kostenlos)
+### Für Nutzer
 
-### 📊 **Sichtbarkeitsanalyse**
-- 🔍 **Höhenprofil** zwischen User und Windrad
-- 🌲 **Vegetation-Erkennung** (Wälder, Bäume)
-- 🏠 **Gebäude-Erkennung** (Häuser, Strukturen)
-- ⛰️ **Gelände-Verdeckung** (Hügel, Berge)
-- 📈 **Visuelles Profil** (Canvas-Grafik)
+✅ **AR-Visualisierung** - WKA-Overlay direkt auf Kamera-Bild
+✅ **Kompass-Navigation** - Automatische Ausrichtung zum WKA
+✅ **Präzise Sichtbarkeit** - Berücksichtigt Wald, Gebäude und Gelände
+✅ **Entfernungs-Info** - Distanz und Richtung zu jedem WKA
+✅ **Höhenprofil** - Interaktive Geländedarstellung
+✅ **Foto-Export** - Aufnahmen speichern und teilen
 
-### 🎨 **3D Windrad Rendering**
-- 🌬️ **Realistische Darstellung** (Turm, Gondel, Rotor)
-- ⚠️ **Teilweise Sichtbarkeit** (nur sichtbarer Teil)
-- ❌ **Vollständig verdeckt** (Warnung)
-- 📸 **Foto-Export** mit Overlay
+### Für Administratoren
 
-### 🗺️ **Interaktive Karte**
-- 📍 **GPS-Lokalisierung**
-- 🎯 **Windrad-Auswahl**
-- 📏 **Entfernungen & Richtungen**
-- 🔗 **Sichtlinie** zwischen User & Windrad
+✅ **WKA-Verwaltung** - Einfaches Hinzufügen/Löschen via Web-Interface
+✅ **Kartenansicht** - Interaktive Platzierung auf Leaflet-Karte
+✅ **Tile-Kalkulator** - Automatische Berechnung benötigter Höhendaten
+✅ **CSV-Export** - Datenexport für GitHub-Deployment
+✅ **WEA-Vorlagen** - Schnelles Ausfüllen für gängige Turbinen-Typen
 
-### 📱 **Mobile-Optimiert**
-- 📸 **Kamera-Integration**
-- 🧭 **Kompass-Navigation**
-- ✓ **Perfekte Ausrichtung** (Echtzeit-Feedback)
-- 💾 **Foto-Download**
+## 🚀 Quick Start
 
----
+### Für Nutzer
 
-## 📦 INSTALLATION
+1. Öffne: **https://pischdi.github.io/Windrad/**
+2. Erlaube GPS, Kamera und Kompass
+3. Wähle ein Windrad aus der Liste
+4. Navigiere zur perfekten Ausrichtung
+5. Foto aufnehmen ✅
 
-### **Option 1: GitHub Pages (Empfohlen)**
+### Für Administratoren
+
+1. Öffne: **https://pischdi.github.io/Windrad/admin.html**
+2. Login: `neuhausen2025`
+3. Klicke auf Karte → Position auswählen
+4. Daten eingeben → Speichern
+5. CSV herunterladen → Auf GitHub hochladen
+
+## 📐 Technologie
+
+### Frontend
+
+- **Vanilla JavaScript** - Keine Framework-Dependencies
+- **Leaflet.js** - Interaktive Karten
+- **MediaDevices API** - Kamera-Zugriff
+- **DeviceOrientation API** - Kompass/Magnetometer
+- **Geolocation API** - GPS-Positionierung
+- **Canvas API** - AR-Overlay Rendering
+
+### Höhendaten
+
+**Primär: Brandenburg DOM (DSM)**
+- Digitales Oberflächenmodell
+- Enthält Bäume, Gebäude, Infrastruktur
+- 1m Auflösung
+- Binary Height Grid Format (Uint16)
+- ~500 KB pro Tile (1km × 1km)
+
+**Fallback: OpenElevation (DTM)**
+- Digitales Geländemodell
+- Nur Terrain, keine Vegetation
+- Kostenlos, unlimited API
+- Warnung wird angezeigt
+
+### Sichtbarkeitsberechnung
+
+```
+1. Hole Höhenprofil zwischen User ↔ WKA
+2. Berechne Sichtlinie (Line of Sight)
+3. Prüfe Hindernisse (Terrain, Wald, Gebäude)
+4. Klassifiziere:
+   - ✅ Sichtbar (>70%)
+   - ⚠️ Teilweise sichtbar (10-70%)
+   - ❌ Verdeckt (<10%)
+```
+
+## 🗂️ Projektstruktur
+
+```
+Windrad/
+├── index.html                 # Haupt-App (User-Interface)
+├── admin.html                 # Admin-Panel (WKA-Verwaltung)
+├── README.md                  # Diese Datei
+│
+├── css/
+│   └── styles.css             # UI-Styling
+│
+├── js/
+│   ├── config.js              # Konfiguration & Settings
+│   ├── app.js                 # Haupt-Anwendungslogik
+│   ├── elevation-service.js   # Höhendaten-Service (DOM/OpenElevation)
+│   ├── visibility-calculator.js  # Line-of-Sight Berechnung
+│   ├── windrad-renderer.js    # AR-Overlay Rendering
+│   ├── camera-controller.js   # Kamera & Kompass
+│   └── map-manager.js         # Kartenansicht & WKA-Liste
+│
+├── data/
+│   └── windraeder.csv         # WKA-Datenbank
+│
+├── scripts/
+│   ├── README.md              # Setup-Anleitung für Höhendaten
+│   ├── laz_to_binary.py       # LAZ → Binary Konverter
+│   └── tile_server.py         # Lokaler Tile-Server
+│
+└── archive/                   # Alte/nicht mehr benötigte Dateien
+```
+
+## 🛠️ Setup & Deployment
+
+### Lokale Entwicklung
 
 ```bash
-# 1. Repository clonen
+# Repository clonen
 git clone https://github.com/pischdi/Windrad.git
 cd Windrad
 
-# 2. Projekt-Dateien kopieren
-cp -r windrad-ar-elevation/* .
+# Mit Live Server öffnen (VS Code Extension)
+# Oder:
+python3 -m http.server 8080
 
-# 3. GitHub Pages aktivieren
-# Settings → Pages → Source: main branch
-
-# 4. Öffnen
-https://pischdi.github.io/index.html
+# Browser: http://localhost:8080
 ```
 
-### **Option 2: Lokaler Server**
+### GitHub Pages Deployment
+
+Bereits eingerichtet! Änderungen werden automatisch deployed:
 
 ```bash
-# Python 3
-python3 -m http.server 8000
+git add .
+git commit -m "Update WKA data"
+git push
 
-# Node.js
-npx http-server -p 8000
-
-# PHP
-php -S localhost:8000
+# Nach ~1 Minute live auf:
+# https://pischdi.github.io/Windrad/
 ```
 
-Dann öffnen: `http://localhost:8000`
+## 📦 Höhendaten-Setup
 
----
+### Quick Start (für Tests)
 
-## 📂 PROJEKT-STRUKTUR
+Die App funktioniert sofort mit OpenElevation-Fallback (DTM ohne Wald/Gebäude).
+
+### Production Setup (mit Brandenburg DOM)
+
+Für präzise Sichtbarkeit mit Wald/Gebäuden:
+
+**1. LAZ-Dateien herunterladen**
+
+Quelle: https://data.geobasis-bb.de → DOM
+
+**2. Konvertieren**
+
+```bash
+cd scripts
+pip install laspy numpy
+
+python3 laz_to_binary.py ~/Downloads/dom_33401_5729.laz -o tiles
+```
+
+**3. Tiles hosten**
+
+**Option A: Lokaler Test**
+```bash
+python3 tile_server.py  # Port 8000
+```
+
+**Option B: Cloudflare R2** (empfohlen)
+- Kostenlos bis 10 GB
+- Schneller als GitHub
+- Setup: https://dash.cloudflare.com/
+
+**4. URL konfigurieren**
+
+In `js/elevation-service.js`:
+```javascript
+this.tileServerUrl = 'https://windrad-tiles.r2.dev/tiles';
+```
+
+Details: [scripts/README.md](scripts/README.md)
+
+## 📝 WKA-Verwaltung
+
+### Neues WKA hinzufügen
+
+**1. Admin-Panel öffnen**
+
+https://pischdi.github.io/Windrad/admin.html
+
+Login: `neuhausen2025`
+
+**2. Position wählen**
+
+- Klicke auf Karte
+- Oder: Marker verschieben
+
+**3. Daten eingeben**
+
+- Name: z.B. "Windpark Neuhausen Nord"
+- WEA-Typ wählen (auto-fills Specs)
+- Oder manuell: Nabenhöhe & Rotordurchmesser
+
+**4. Tile-Info prüfen**
+
+Das System zeigt automatisch welche Höhendaten-Tiles benötigt werden:
 
 ```
-windrad-ar-elevation/
-├── 📄 index.html                      # Haupt-HTML
-├── 📁 css/
-│   └── styles.css                     # Alle Styles
-├── 📁 js/
-│   ├── config.js                      # Konfiguration
-│   ├── elevation-service.js           # Brandenburg DOM Service
-│   ├── visibility-calculator.js      # Sichtbarkeits-Logik
-│   ├── map-manager.js                 # Leaflet Map
-│   ├── windrad-renderer.js            # 3D Rendering
-│   ├── camera-controller.js           # Kamera/Kompass
-│   └── app.js                         # Main Application
-└── 📄 README.md                       # Diese Datei
+Sichtbereich: 5 km Radius
+Benötigte Tiles: 121
+
+tile_400_5728.bin
+tile_400_5729.bin
+tile_401_5728.bin
+...
 ```
 
----
+**5. Speichern & Deployen**
 
-## ⚙️ KONFIGURATION
+- "Windrad speichern" klicken
+- "CSV herunterladen"
+- CSV auf GitHub hochladen (ersetzt alte `windraeder.csv`)
+- Nach ~1 Minute live
 
-### **js/config.js**
+### CSV-Format
+
+```csv
+id,name,hubHeight,rotorDiameter,lat,lon
+1735123456789,Windpark Nord,166,150,51.6724,14.4354
+```
+
+**Felder:**
+- `id`: Timestamp (wird automatisch generiert)
+- `name`: WKA-Name (frei wählbar)
+- `hubHeight`: Nabenhöhe in Metern
+- `rotorDiameter`: Rotordurchmesser in Metern
+- `lat`: Breitengrad (WGS84)
+- `lon`: Längengrad (WGS84)
+
+## 🎯 User-Anleitung
+
+### Erste Schritte
+
+**1. App öffnen**
+
+https://pischdi.github.io/Windrad/
+
+**2. Berechtigungen erteilen**
+
+- 📍 Standort (GPS)
+- 📷 Kamera
+- 🧭 Kompass/Bewegung (iOS)
+
+**3. WKA auswählen**
+
+Liste zeigt alle WKAs sortiert nach Entfernung.
+
+### Foto aufnehmen
+
+**1. WKA auswählen**
+
+Die App berechnet:
+- Entfernung
+- Richtung
+- Sichtbarkeit (mit Geländeprofil)
+
+**2. Kamera starten**
+
+- Button "📷 Foto-Modus"
+- Kompass zeigt Richtung an
+
+**3. Ausrichten**
+
+Drehe dich bis:
+- Kompass zeigt ✓ Perfekt
+- Grünes Signal
+
+**4. Foto aufnehmen**
+
+- Button drücken
+- WKA-Overlay wird gerendert
+- Foto anzeigen/speichern/teilen
+
+### Sichtbarkeits-Status
+
+**✅ Komplett sichtbar**
+- WKA ist vom aktuellen Standort vollständig sichtbar
+- Keine Hindernisse im Weg
+
+**⚠️ Teilweise sichtbar**
+- Nur oberer Teil des WKA ist sichtbar
+- Gelände/Wald verdeckt unteren Teil
+- Prozentangabe zeigt sichtbare Höhe
+
+**❌ Nicht sichtbar**
+- WKA wird durch Gelände verdeckt
+- Ändern Sie den Standort
+
+**⚠️ Ohne Wald-/Gebäudedaten**
+- OpenElevation Fallback aktiv
+- Sichtbarkeit unpräzise (nur Terrain)
+- Administrator sollte DOM-Tiles bereitstellen
+
+## 🔧 Konfiguration
+
+### js/config.js
 
 ```javascript
-const CONFIG = {
-    // Brandenburg DOM WMS
-    BRANDENBURG_DOM: {
-        wmsUrl: 'https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms',
-        layer: 'by_dop20c',
-        fallbackUrl: 'https://api.open-elevation.com/api/v1/lookup'
-    },
-    
-    // CSV Windräder
-    CSV_URL: 'https://raw.githubusercontent.com/pischdi/Windrad/main/windraeder.csv',
-    
-    // Elevation Settings
-    ELEVATION: {
-        samples: 20,              // Anzahl Messpunkte
-        cacheEnabled: true,       // localStorage Cache
-        cacheDuration: 86400000   // 24 Stunden
-    },
-    
-    // Map Settings
+CONFIG = {
+    // Karten-Einstellungen
     MAP: {
-        defaultLocation: { lat: 51.6724, lng: 14.4354 }, // Neuhausen
-        defaultZoom: 13
-    }
-};
-```
+        defaultLocation: { lat: 51.6724, lng: 14.4354 },
+        zoom: 12
+    },
 
----
+    // Höhendaten
+    ELEVATION: {
+        samples: 50,        // Profil-Auflösung
+        cacheEnabled: true, // Browser-Cache
+        cacheDuration: 86400000  // 24h
+    },
 
-## 🚀 VERWENDUNG
+    // Sichtbarkeit
+    VISIBILITY: {
+        blockedThreshold: 10,    // <10% = blocked
+        partialThreshold: 70,    // 10-70% = partial
+        visibleThreshold: 70     // >70% = visible
+    },
 
-### **1. Windrad Auswählen**
-- Karte öffnen
-- Windrad auf Karte anklicken ODER
-- Windrad aus Liste wählen
+    // Kamera
+    CAMERA: {
+        targetThreshold: 10,  // ±10° = "perfekt"
+        videoConstraints: {
+            video: {
+                facingMode: 'environment',
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            }
+        }
+    },
 
-### **2. Sichtbarkeit Prüfen**
-- Automatische Analyse startet
-- Höhenprofil wird angezeigt
-- Sichtbarkeits-Status erscheint
-
-### **3. Foto Aufnehmen**
-- "📸 Foto aufnehmen" klicken
-- Kamera ausrichten (folge Pfeilen)
-- Bei "Perfekt!" → Aufnehmen
-- Foto wird mit Windrad-Overlay gespeichert
-
----
-
-## 🔧 TECHNISCHE DETAILS
-
-### **Brandenburg DOM Integration**
-
-```javascript
-// Elevation Service nutzt Brandenburg WMS
-const profile = await elevationService.getProfile(
-    userLat, userLon,
-    turbineLat, turbineLon,
-    20 // Samples
-);
-
-// Fallback auf OpenElevation bei Fehler
-// Kostenlos, unbegrenzt, weltweit verfügbar
-```
-
-### **Sichtbarkeits-Algorithmus**
-
-```javascript
-// 1. Sichtlinie berechnen
-const sightLineSlope = (turbineTop - userEye) / distance;
-
-// 2. Jeden Geländepunkt prüfen
-for (point of profile) {
-    const expectedHeight = userEye + (sightLineSlope * point.distance);
-    if (point.elevation > expectedHeight) {
-        // Verdeckt!
-        blocked = true;
-    }
-}
-
-// 3. Sichtbare Höhe berechnen
-visibleHeight = totalHeight - blockedHeight;
-visiblePercent = (visibleHeight / totalHeight) * 100;
-```
-
-### **3D Rendering**
-
-```javascript
-// Windrad mit Perspektive zeichnen
-const pixelHeight = (visibleHeight / distanceMeters) * 500;
-
-// Nur sichtbaren Teil rendern
-if (status === 'partial') {
-    drawFromTop(visibleHeight);
-} else if (status === 'blocked') {
-    showBlockedMessage();
-} else {
-    drawCompleteTurbine();
+    DEBUG: false  // Detailliertes Logging
 }
 ```
 
----
+## 🌍 Erweiterung auf andere Regionen
 
-## 💡 OPTIMIERUNGEN
+### Brandenburg → Ganz Deutschland
 
-### **Performance**
+**Schritt 1: Mehr Tiles**
+- Download aller Brandenburg LAZ-Dateien
+- Konvertierung mit `scripts/laz_to_binary.py`
+- ~10.000 Tiles × 500 KB = ~5 GB
 
-```javascript
-// 1. localStorage Cache
-// Elevation-Profile werden 24h gecacht
+**Schritt 2: Cloud-Hosting**
+- Cloudflare R2 oder AWS S3
+- CDN für schnelle Auslieferung
 
-// 2. Lazy Loading
-// Nur aktive Windräder werden berechnet
+**Schritt 3: CODE-DE/EO-Lab Skalierung**
 
-// 3. Debouncing
-// Kompass-Updates gedrosselt
-```
+Für ganz Deutschland:
 
-### **Datenquellen**
+1. **Jupyter Notebooks** auf EO-Lab
+2. **Batch-Konvertierung** aller LAZ-Dateien
+3. **S3-Storage** für Tiles
+4. **Lambda Functions** für On-Demand-Konvertierung
 
-```
-Primary:   Brandenburg DOM WMS (1m, kostenlos)
-Fallback:  OpenElevation API (30m, kostenlos)
-Future:    LAZ Download (0.2m, offline)
-```
+### Andere Regionen (außerhalb Brandenburg)
 
----
+Für Regionen ohne eigene DOM-Daten:
 
-## 📈 FEATURE ROADMAP
+**Option 1: Copernicus DEM** (Europa, 10m)
+- https://registry.opendata.aws/copernicus-dem/
+- Kostenlos, EU-weit
 
-### **Phase 2: Advanced DOM**
-- [ ] LAZ-Download für 0.2m Auflösung
-- [ ] Offline-Modus mit lokalem DOM
-- [ ] CloudCompare Integration
-- [ ] Baumhöhen-Analyse
+**Option 2: OpenTopography** (weltweit)
+- https://opentopography.org/
+- Verschiedene DEM-Quellen
 
-### **Phase 3: Multi-Platform**
-- [ ] iOS App (Swift)
-- [ ] Android App (Kotlin)
-- [ ] Desktop App (Electron)
+**Option 3: Lokale Geodaten**
+- Vermessungsämter anfragen
+- LIDAR-Daten
 
-### **Phase 4: Social Features**
-- [ ] Foto-Galerie
-- [ ] Community-Sharing
-- [ ] Kommentare & Bewertungen
+## 🤝 Mitwirken
 
----
+### Bug-Reports
 
-## 🐛 TROUBLESHOOTING
+Issues auf GitHub: https://github.com/pischdi/Windrad/issues
 
-### **Kamera startet nicht**
-```
-Problem: "Kamera konnte nicht gestartet werden"
-Lösung:  
-1. HTTPS erforderlich (GitHub Pages ✓)
-2. Kamera-Berechtigung erteilen
-3. Browser-Kompatibilität prüfen
-```
+### Pull Requests
 
-### **Kompass funktioniert nicht**
-```
-Problem: Richtungs-Anzeige bleibt bei "--°"
-Lösung:
-1. Kompass-Berechtigung erteilen (iOS)
-2. Gerät kalibrieren (8er-Bewegung)
-3. Im Freien testen (Magnetfeld)
-```
+1. Fork das Repository
+2. Feature-Branch erstellen
+3. Changes committen
+4. Pull Request öffnen
 
-### **Elevation API Fehler**
-```
-Problem: "Brandenburg WMS failed"
-Lösung: Automatischer Fallback auf OpenElevation
-Info: Beide Services kostenlos & unbegrenzt
-```
+### Lizenz
 
-### **GPS ungenau**
-```
-Problem: Falsche Position auf Karte
-Lösung:
-1. GPS aktivieren
-2. Im Freien testen (kein Gebäude)
-3. Standort-Berechtigung prüfen
-```
+Brandenburg Geodaten: [Datenlizenz Deutschland – Namensnennung – Version 2.0](https://www.govdata.de/dl-de/by-2-0)
 
----
+Code: MIT
 
-## 📞 SUPPORT
+## 📚 Ressourcen
 
-**GitHub Issues:** https://github.com/pischdi/Windrad/issues
-**E-Mail:** [Deine E-Mail]
+### Geodaten
 
----
+- **Brandenburg Geoportal:** https://geoportal.brandenburg.de
+- **LAZ Download:** https://data.geobasis-bb.de
+- **Metadaten:** https://metaver.de
+- **INSPIRE Services:** https://isk.geobasis-bb.de/inspire
 
-## 📜 LIZENZ
+### APIs
 
-**MIT License**
+- **OpenElevation:** https://api.open-elevation.com
+- **Copernicus DEM:** https://registry.opendata.aws/copernicus-dem/
 
-Dieses Projekt nutzt:
-- **OpenStreetMap** (ODbL)
-- **OpenTopoMap** (CC-BY-SA)
-- **Brandenburg Open Data** (Datenlizenz Deutschland)
-- **Leaflet** (BSD-2-Clause)
-- **OpenElevation** (Public Domain)
+### Entwicklung
+
+- **Leaflet.js:** https://leafletjs.com
+- **Laspy (Python):** https://laspy.readthedocs.io
+- **MDN Web APIs:** https://developer.mozilla.org
+
+## 🎓 Hintergrund
+
+Dieses Projekt entstand aus dem Bedarf, Bürgern in Brandenburg eine realistische Visualisierung geplanter Windkraftanlagen zu ermöglichen. Durch die Nutzung des Brandenburg DOM können präzise Sichtbarkeitsberechnungen durchgeführt werden, die Wälder, Gebäude und Geländestrukturen berücksichtigen.
+
+**Technische Highlights:**
+- Client-side AR ohne Server-Backend
+- Effiziente Binary Tile-Encoding (~500 KB/km²)
+- Automatischer Fallback für offline-Nutzung
+- GitHub Pages Hosting (kostenlos)
+
+**Entwickelt für:**
+- Gemeinde Neuhausen/Spree
+- Erweiterbar auf ganz Brandenburg
+- Skalierbar auf ganz Deutschland
 
 ---
 
-## 🙏 CREDITS
-
-- **LGB Brandenburg** - Digitales Oberflächenmodell (DOM)
-- **OpenStreetMap Contributors**
-- **OpenTopoMap Team**
-- **OpenElevation Project**
-- **Leaflet.js Team**
-
----
-
-**Made with ❤️ in Brandenburg**
+**Version:** 1.0.0  
+**Zuletzt aktualisiert:** Februar 2026  
+**Entwickelt mit:** Claude Sonnet 4.5
