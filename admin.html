@@ -320,21 +320,69 @@
         <div class="container">
             <!-- Status -->
             <div class="card">
-                <h2>📊 Status</h2>
-                <div class="alert alert-info">
-                    <strong>🌐 GitHub Pages Version</strong><br>
-                    Diese Admin-Seite läuft lokal in Ihrem Browser.<br>
-                    Nach dem Bearbeiten: CSV herunterladen und auf GitHub hochladen!
-                </div>
+                <h2>📊 Status & Aktionen</h2>
                 <p><strong>Gespeicherte Windräder:</strong> <span id="turbineCount">0</span></p>
-                <p style="margin-top: 0.5rem;">
-                    <button class="btn-download" onclick="downloadCSV()">
-                        💾 CSV herunterladen
+                <p><strong>Repository:</strong> <span id="repoDisplay" style="font-family: monospace;">-</span></p>
+
+                <div style="margin-top: 1rem;">
+                    <button class="btn-primary" onclick="pushToGitHub()" id="pushBtn">
+                        ✅ Auf GitHub veröffentlichen
                     </button>
                     <button class="btn-secondary" onclick="reloadFromGitHub()" style="margin-left: 0.5rem;">
                         🔄 Von GitHub neu laden
                     </button>
-                </p>
+                    <button class="btn-secondary" onclick="downloadCSV()" style="margin-left: 0.5rem;">
+                        💾 CSV herunterladen (Backup)
+                    </button>
+                    <button class="btn-secondary" onclick="showConfig()" style="margin-left: 0.5rem;">
+                        ⚙️ Konfiguration
+                    </button>
+                </div>
+
+                <div id="githubStatus" style="margin-top: 1rem; display: none;"></div>
+            </div>
+
+            <!-- Configuration Modal -->
+            <div id="configModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 20000; overflow-y: auto;">
+                <div style="max-width: 600px; margin: 50px auto; background: white; border-radius: 12px; padding: 2rem;">
+                    <h2 style="color: #1a5f3b; margin-bottom: 1rem;">⚙️ GitHub Konfiguration</h2>
+
+                    <div class="alert alert-warning">
+                        <strong>⚠️ Sicherheitshinweis:</strong><br>
+                        Der GitHub Token wird lokal im Browser gespeichert.<br>
+                        Verwenden Sie einen Token mit <strong>nur</strong> Schreibrechten für dieses Repo!
+                    </div>
+
+                    <div class="form-group">
+                        <label>GitHub Repository:</label>
+                        <input type="text" class="form-control" id="configRepo" placeholder="username/repository">
+                        <small style="color: #666;">z.B. pischdi/Windrad</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Branch:</label>
+                        <input type="text" class="form-control" id="configBranch" placeholder="main">
+                    </div>
+
+                    <div class="form-group">
+                        <label>CSV-Pfad:</label>
+                        <input type="text" class="form-control" id="configCsvPath" placeholder="windraeder.csv">
+                    </div>
+
+                    <div class="form-group">
+                        <label>GitHub Personal Access Token:</label>
+                        <input type="password" class="form-control" id="configToken" placeholder="ghp_xxxxxxxxxxxx">
+                        <small style="color: #666;">
+                            Token erstellen: <a href="https://github.com/settings/tokens/new?scopes=repo&description=Windrad%20AR%20Admin" target="_blank">GitHub Settings</a><br>
+                            Benötigte Permission: <strong>repo</strong> (oder nur <strong>public_repo</strong> für öffentliche Repos)
+                        </small>
+                    </div>
+
+                    <div style="margin-top: 1.5rem;">
+                        <button class="btn-primary" onclick="saveConfig()">💾 Konfiguration speichern</button>
+                        <button class="btn-secondary" onclick="closeConfig()" style="margin-left: 0.5rem;">Abbrechen</button>
+                    </div>
+                </div>
             </div>
             
             <!-- Map -->
@@ -390,15 +438,36 @@
                 </div>
             </div>
             
-            <!-- Upload Instructions -->
+            <!-- GitHub Setup Instructions -->
             <div class="card">
-                <h2>📤 Daten auf GitHub hochladen</h2>
-                <div class="alert alert-warning">
-                    <strong>⚠️ Wichtig: Manuelle Schritte erforderlich!</strong>
+                <h2>🔧 Ersteinrichtung</h2>
+                <div class="alert alert-info">
+                    <strong>ℹ️ Einmalige Konfiguration erforderlich</strong>
                 </div>
+                <p style="margin-bottom: 1rem;">Für direkten GitHub-Upload benötigen Sie einen Personal Access Token:</p>
                 <ol style="margin-left: 1.5rem; line-height: 1.8;">
-                    <li>Klicken Sie oben auf <strong>"💾 CSV herunterladen"</strong></li>
-                    <li>Öffnen Sie <a href="https://github.com/pischdi/Windrad" target="_blank" style="color: #2196f3;">github.com/pischdi/Windrad</a></li>
+                    <li>Öffnen Sie <a href="https://github.com/settings/tokens/new?scopes=repo&description=Windrad%20AR%20Admin" target="_blank" style="color: #2196f3;">GitHub Token Settings</a></li>
+                    <li>Klicken Sie auf <strong>"Generate token"</strong></li>
+                    <li>Wählen Sie Permissions: <strong>repo</strong> (oder nur <strong>public_repo</strong> für öffentliche Repos)</li>
+                    <li>Expiration: <strong>No expiration</strong> oder gewünschte Dauer</li>
+                    <li>Token kopieren (nur einmal sichtbar!)</li>
+                    <li>Oben auf <strong>"⚙️ Konfiguration"</strong> klicken</li>
+                    <li>Repository, Branch und Token eintragen</li>
+                    <li>Speichern ✅</li>
+                </ol>
+                <p style="margin-top: 1rem; color: #666; font-size: 0.9rem;">
+                    <strong>Hinweis:</strong> Der Token wird lokal im Browser gespeichert.<br>
+                    Für andere Systeme: Konfiguration neu eintragen oder manuellen Upload nutzen (siehe unten).
+                </p>
+            </div>
+
+            <!-- Manual Upload Fallback -->
+            <div class="card">
+                <h2>📤 Manueller Upload (Fallback)</h2>
+                <p style="margin-bottom: 1rem;">Falls automatischer Upload nicht funktioniert:</p>
+                <ol style="margin-left: 1.5rem; line-height: 1.8;">
+                    <li>Klicken Sie oben auf <strong>"💾 CSV herunterladen (Backup)"</strong></li>
+                    <li>Öffnen Sie Ihr GitHub Repository</li>
                     <li>Klicken Sie auf die alte <strong>windraeder.csv</strong> Datei</li>
                     <li>Klicken Sie rechts auf das <strong>Stift-Symbol</strong> (Edit)</li>
                     <li>Löschen Sie den alten Inhalt</li>
@@ -734,12 +803,12 @@
         // Render list
         function renderList() {
             const list = document.getElementById('turbineList');
-            
+
             if (turbines.length === 0) {
                 list.innerHTML = '<p style="color: #666;">Noch keine Windräder hinzugefügt.</p>';
                 return;
             }
-            
+
             list.innerHTML = turbines.map(t => `
                 <div class="turbine-item">
                     <div class="turbine-info">
@@ -750,6 +819,196 @@
                 </div>
             `).join('');
         }
+
+        // ==============================
+        // GitHub Configuration & Upload
+        // ==============================
+
+        // Load configuration
+        function loadConfig() {
+            const config = {
+                repo: localStorage.getItem('windrad_github_repo') || 'pischdi/Windrad',
+                branch: localStorage.getItem('windrad_github_branch') || 'main',
+                csvPath: localStorage.getItem('windrad_github_csvPath') || 'windraeder.csv',
+                token: localStorage.getItem('windrad_github_token') || ''
+            };
+
+            // Update display
+            document.getElementById('repoDisplay').textContent = config.repo;
+
+            // Disable push button if no token
+            if (!config.token) {
+                document.getElementById('pushBtn').disabled = true;
+                document.getElementById('pushBtn').title = 'Bitte GitHub Token in Konfiguration eintragen';
+            }
+
+            return config;
+        }
+
+        // Show configuration modal
+        function showConfig() {
+            const config = loadConfig();
+
+            document.getElementById('configRepo').value = config.repo;
+            document.getElementById('configBranch').value = config.branch;
+            document.getElementById('configCsvPath').value = config.csvPath;
+            document.getElementById('configToken').value = config.token;
+
+            document.getElementById('configModal').style.display = 'block';
+        }
+
+        // Close configuration modal
+        function closeConfig() {
+            document.getElementById('configModal').style.display = 'none';
+        }
+
+        // Save configuration
+        function saveConfig() {
+            const repo = document.getElementById('configRepo').value.trim();
+            const branch = document.getElementById('configBranch').value.trim();
+            const csvPath = document.getElementById('configCsvPath').value.trim();
+            const token = document.getElementById('configToken').value.trim();
+
+            if (!repo || !branch || !csvPath) {
+                alert('Bitte alle Felder ausfüllen!');
+                return;
+            }
+
+            if (!token) {
+                alert('Bitte GitHub Token eintragen! Ohne Token können keine Commits gemacht werden.');
+                return;
+            }
+
+            // Validate token format
+            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+                if (!confirm('Token hat ungewöhnliches Format. Trotzdem speichern?')) {
+                    return;
+                }
+            }
+
+            // Save to localStorage
+            localStorage.setItem('windrad_github_repo', repo);
+            localStorage.setItem('windrad_github_branch', branch);
+            localStorage.setItem('windrad_github_csvPath', csvPath);
+            localStorage.setItem('windrad_github_token', token);
+
+            // Update UI
+            document.getElementById('repoDisplay').textContent = repo;
+            document.getElementById('pushBtn').disabled = false;
+
+            closeConfig();
+            showNotification('✅ Konfiguration gespeichert!', 'success');
+        }
+
+        // Push to GitHub
+        async function pushToGitHub() {
+            if (turbines.length === 0) {
+                alert('Keine Windräder zum Veröffentlichen!');
+                return;
+            }
+
+            const config = loadConfig();
+
+            if (!config.token) {
+                alert('Bitte zuerst GitHub Token in Konfiguration eintragen!');
+                showConfig();
+                return;
+            }
+
+            const statusEl = document.getElementById('githubStatus');
+            statusEl.style.display = 'block';
+            statusEl.className = 'alert alert-info';
+            statusEl.innerHTML = '⏳ Veröffentliche auf GitHub...';
+
+            try {
+                // 1. Generate CSV content
+                let csvContent = 'id,name,hubHeight,rotorDiameter,lat,lon\n';
+                turbines.forEach(t => {
+                    csvContent += `${t.id},${t.name},${t.hubHeight},${t.rotorDiameter},${t.lat},${t.lon}\n`;
+                });
+
+                // 2. Get current file SHA (required for updating)
+                const fileUrl = `https://api.github.com/repos/${config.repo}/contents/${config.csvPath}?ref=${config.branch}`;
+                let sha = null;
+
+                const fileResponse = await fetch(fileUrl, {
+                    headers: {
+                        'Authorization': `token ${config.token}`,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+
+                if (fileResponse.ok) {
+                    const fileData = await fileResponse.json();
+                    sha = fileData.sha;
+                }
+
+                // 3. Commit to GitHub
+                const commitUrl = `https://api.github.com/repos/${config.repo}/contents/${config.csvPath}`;
+                const commitMessage = `Update windraeder.csv (${turbines.length} Windräder) - via Admin Panel`;
+
+                const commitPayload = {
+                    message: commitMessage,
+                    content: btoa(unescape(encodeURIComponent(csvContent))), // Base64 encode UTF-8
+                    branch: config.branch
+                };
+
+                if (sha) {
+                    commitPayload.sha = sha; // Update existing file
+                }
+
+                const commitResponse = await fetch(commitUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `token ${config.token}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(commitPayload)
+                });
+
+                if (!commitResponse.ok) {
+                    const errorData = await commitResponse.json();
+                    throw new Error(errorData.message || 'GitHub API Fehler');
+                }
+
+                const commitData = await commitResponse.json();
+
+                // Success!
+                statusEl.className = 'alert alert-success';
+                statusEl.innerHTML = `
+                    ✅ <strong>Erfolgreich veröffentlicht!</strong><br>
+                    <small>
+                        Commit: <a href="${commitData.commit.html_url}" target="_blank" style="color: #2e7d32;">${commitData.commit.sha.substring(0, 7)}</a><br>
+                        Die Änderungen sind in ~1 Minute live auf GitHub Pages verfügbar.
+                    </small>
+                `;
+
+                showNotification('✅ Erfolgreich auf GitHub veröffentlicht!', 'success');
+
+            } catch (error) {
+                console.error('GitHub push error:', error);
+                statusEl.className = 'alert alert-warning';
+                statusEl.innerHTML = `
+                    ❌ <strong>Fehler beim Veröffentlichen:</strong><br>
+                    ${error.message}<br><br>
+                    <small>
+                        Mögliche Ursachen:<br>
+                        • Token ungültig oder abgelaufen<br>
+                        • Token hat keine Schreibrechte für dieses Repo<br>
+                        • Repository existiert nicht<br>
+                        • Branch existiert nicht<br><br>
+                        Fallback: Nutzen Sie "💾 CSV herunterladen" und laden Sie manuell auf GitHub hoch.
+                    </small>
+                `;
+                showNotification('❌ GitHub-Upload fehlgeschlagen - siehe Details', 'error');
+            }
+        }
+
+        // Load config on startup
+        window.addEventListener('DOMContentLoaded', () => {
+            loadConfig();
+        });
     </script>
 </body>
 </html>
