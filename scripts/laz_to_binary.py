@@ -25,7 +25,27 @@ except ImportError:
     sys.exit(1)
 
 
-def laz_to_height_grid(laz_file, output_dir, tile_size=1000, resolution=1.0):
+def load_tile_list(tile_list_file):
+    """
+    Lädt Tile-Liste aus Textdatei
+
+    Args:
+        tile_list_file: Path zur Tile-Liste (eine Zeile pro Tile)
+
+    Returns:
+        Set mit Tile-Namen (z.B. {"tile_400_5728.bin", ...})
+    """
+    tiles = set()
+    with open(tile_list_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            # Überspringe Kommentare und leere Zeilen
+            if line and not line.startswith('#'):
+                tiles.add(line)
+    return tiles
+
+
+def laz_to_height_grid(laz_file, output_dir, tile_size=1000, resolution=1.0, tile_filter=None):
     """
     Konvertiert LAZ zu Height Grid
 
@@ -34,8 +54,12 @@ def laz_to_height_grid(laz_file, output_dir, tile_size=1000, resolution=1.0):
         output_dir: Ausgabe-Verzeichnis
         tile_size: Kachel-Größe in Metern (default: 1000m)
         resolution: Auflösung in Metern (default: 1m)
+        tile_filter: Set mit Tile-Namen zum Filtern (optional)
     """
     print(f"📂 Lade LAZ-Datei: {laz_file}")
+
+    if tile_filter:
+        print(f"🔍 Filter aktiv: Nur {len(tile_filter)} spezifische Tiles werden konvertiert")
 
     # LAZ laden
     las = laspy.read(laz_file)
@@ -66,6 +90,15 @@ def laz_to_height_grid(laz_file, output_dir, tile_size=1000, resolution=1.0):
     # Für jede Kachel
     for tile_x in range(int(x_min), int(x_max), tile_size):
         for tile_y in range(int(y_min), int(y_max), tile_size):
+
+            # Tile-ID berechnen
+            tile_id_x = int(tile_x / 1000)
+            tile_id_y = int(tile_y / 1000)
+            tile_name = f"tile_{tile_id_x}_{tile_id_y}.bin"
+
+            # Prüfe Filter (wenn gesetzt)
+            if tile_filter and tile_name not in tile_filter:
+                continue  # Überspringe dieses Tile
 
             # Punkte in dieser Kachel filtern
             mask = (
@@ -113,9 +146,7 @@ def laz_to_height_grid(laz_file, output_dir, tile_size=1000, resolution=1.0):
             # Zu Uint16 konvertieren (cm Genauigkeit)
             dsm_uint16 = (dsm * 100).astype(np.uint16)
 
-            # Dateiname
-            tile_id_x = int(tile_x / 1000)
-            tile_id_y = int(tile_y / 1000)
+            # Dateiname (tile_id_x und tile_id_y wurden bereits oben berechnet)
             output_file = output_dir / f"tile_{tile_id_x}_{tile_id_y}.bin"
             output_file_gz = output_dir / f"tile_{tile_id_x}_{tile_id_y}.bin.gz"
 
@@ -142,11 +173,15 @@ def laz_to_height_grid(laz_file, output_dir, tile_size=1000, resolution=1.0):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="LAZ → Binary Height Grid Converter")
+    parser = argparse.ArgumentParser(
+        description="LAZ → Binary Height Grid Converter",
+        epilog="Beispiel: python3 laz_to_binary.py input.laz --tile-list tiles.txt"
+    )
     parser.add_argument("laz_file", help="Input LAZ file")
     parser.add_argument("-o", "--output", default="tiles", help="Output directory (default: tiles)")
     parser.add_argument("-s", "--size", type=int, default=1000, help="Tile size in meters (default: 1000)")
     parser.add_argument("-r", "--resolution", type=float, default=1.0, help="Grid resolution in meters (default: 1.0)")
+    parser.add_argument("-t", "--tile-list", help="Text file with list of tiles to convert (one per line)")
 
     args = parser.parse_args()
 
@@ -154,10 +189,17 @@ if __name__ == "__main__":
     output_dir = Path(args.output)
     output_dir.mkdir(exist_ok=True)
 
+    # Tile-Filter laden (falls angegeben)
+    tile_filter = None
+    if args.tile_list:
+        tile_filter = load_tile_list(args.tile_list)
+        print(f"📋 Tile-Liste geladen: {len(tile_filter)} Tiles")
+
     # Konvertieren
     laz_to_height_grid(
         Path(args.laz_file),
         output_dir,
         tile_size=args.size,
-        resolution=args.resolution
+        resolution=args.resolution,
+        tile_filter=tile_filter
     )

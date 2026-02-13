@@ -325,16 +325,19 @@
                 <p><strong>Repository:</strong> <span id="repoDisplay" style="font-family: monospace;">-</span></p>
 
                 <div style="margin-top: 1rem;">
-                    <button class="btn-primary" onclick="pushToGitHub()" id="pushBtn">
+                    <button class="btn btn-primary" onclick="pushToGitHub()" id="pushBtn">
                         ✅ Auf GitHub veröffentlichen
                     </button>
-                    <button class="btn-secondary" onclick="reloadFromGitHub()" style="margin-left: 0.5rem;">
+                    <button class="btn btn-secondary" onclick="reloadFromGitHub()" style="margin-left: 0.5rem;">
                         🔄 Von GitHub neu laden
                     </button>
-                    <button class="btn-secondary" onclick="downloadCSV()" style="margin-left: 0.5rem;">
+                    <button class="btn btn-secondary" onclick="downloadCSV()" style="margin-left: 0.5rem;">
                         💾 CSV herunterladen (Backup)
                     </button>
-                    <button class="btn-secondary" onclick="showConfig()" style="margin-left: 0.5rem;">
+                    <button class="btn btn-secondary" onclick="downloadTileList()" style="margin-left: 0.5rem;">
+                        📦 Tile-Liste herunterladen
+                    </button>
+                    <button class="btn btn-secondary" onclick="showConfig()" style="margin-left: 0.5rem;">
                         ⚙️ Konfiguration
                     </button>
                 </div>
@@ -583,6 +586,50 @@
 
             showNotification('✅ CSV heruntergeladen! Jetzt auf GitHub hochladen.', 'success');
         }
+
+        // Download Tile List
+        function downloadTileList() {
+            if (turbines.length === 0) {
+                alert('Keine Windräder vorhanden! Fügen Sie zuerst WKAs hinzu.');
+                return;
+            }
+
+            // Sammle alle benötigten Tiles (Set für Deduplizierung)
+            const allTiles = new Set();
+            const radiusKm = 3; // Reduzierter Radius (3 km statt 5 km)
+
+            turbines.forEach(t => {
+                const tiles = getRequiredTiles(t.lat, t.lon, radiusKm);
+                tiles.forEach(tile => allTiles.add(tile));
+            });
+
+            // Sortiere Tiles
+            const sortedTiles = Array.from(allTiles).sort();
+
+            // Erstelle Textdatei
+            let content = `# Windrad AR - Benötigte Höhendaten-Tiles\n`;
+            content += `# Generiert: ${new Date().toISOString()}\n`;
+            content += `# Anzahl WKAs: ${turbines.length}\n`;
+            content += `# Sichtradius: ${radiusKm} km\n`;
+            content += `# Anzahl Tiles: ${sortedTiles.length}\n`;
+            content += `#\n`;
+            content += `# Verwendung:\n`;
+            content += `#   python3 laz_to_binary.py input.laz --tile-list tiles.txt\n`;
+            content += `#\n\n`;
+
+            sortedTiles.forEach(tile => {
+                content += tile + '\n';
+            });
+
+            // Download
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'windrad-tiles.txt';
+            link.click();
+
+            showNotification(`✅ Tile-Liste heruntergeladen! ${sortedTiles.length} Tiles (${radiusKm} km Radius)`, 'success');
+        }
         
         // Show notification
         function showNotification(message, type) {
@@ -685,7 +732,7 @@
         }
 
         // Calculate required tiles for a turbine location
-        function getRequiredTiles(lat, lng, radiusKm = 5) {
+        function getRequiredTiles(lat, lng, radiusKm = 3) {
             const utm = convertToUTM(lat, lng);
             const radiusM = radiusKm * 1000;
 
@@ -713,12 +760,15 @@
 
         // Update tile info display
         function updateTileInfo(lat, lng) {
-            const tiles = getRequiredTiles(lat, lng, 5);
+            const tiles = getRequiredTiles(lat, lng, 3);
             const tileListEl = document.getElementById('tileList');
 
-            let html = `<strong>Sichtbereich:</strong> 5 km Radius<br>`;
+            let html = `<strong>Sichtbereich:</strong> 3 km Radius<br>`;
             html += `<strong>Benötigte Tiles:</strong> ${tiles.length}<br><br>`;
-            html += tiles.join('<br>');
+            html += tiles.slice(0, 20).join('<br>');
+            if (tiles.length > 20) {
+                html += `<br>... und ${tiles.length - 20} weitere`;
+            }
 
             tileListEl.innerHTML = html;
         }
