@@ -139,6 +139,128 @@ git push
 # https://pischdi.github.io/Windrad/
 ```
 
+### Cloudflare Deployment (Empfohlen für Production)
+
+**Vorteile gegenüber GitHub Pages:**
+- ⚡ Schneller (~50ms vs ~300ms in Europa)
+- 🌍 Besseres globales CDN
+- 💾 Kostenlose R2-Storage für Tiles
+- 🔧 Mehr Kontrolle über Caching
+
+**Schritt-für-Schritt Setup:**
+
+#### 1. Cloudflare Pages (Website Hosting)
+
+1. **Account erstellen**: https://dash.cloudflare.com/sign-up
+2. **Pages öffnen**: Dashboard → Pages → "Create a project"
+3. **GitHub verbinden**:
+   - "Connect to Git" wählen
+   - Repository autorisieren
+   - Repository "Windrad" auswählen
+4. **Build Settings**:
+   - **Framework preset**: None
+   - **Build command**: (leer lassen)
+   - **Build output directory**: `/`
+5. **Deploy** klicken
+
+Ihre App ist nun live auf: `https://windrad-xxx.pages.dev`
+
+#### 2. Cloudflare R2 (Tile Storage)
+
+1. **R2 öffnen**: Dashboard → R2 → "Create bucket"
+2. **Bucket erstellen**:
+   - Name: `windrad-tiles`
+   - Location: Western Europe (für Brandenburg optimal)
+3. **Public Access aktivieren**:
+   - Settings → Public Access → "Allow Access"
+   - Custom Domain (optional): `tiles.ihre-domain.de`
+   - Oder: Public R2.dev Subdomain aktivieren
+4. **API Token erstellen**:
+   - R2 → Manage R2 API Tokens → "Create API token"
+   - Name: "windrad-upload"
+   - Permissions: Object Read & Write
+   - Token speichern! (wird nur einmal angezeigt)
+
+#### 3. Code-Anpassung
+
+Öffnen Sie `js/elevation-service.js` und aktualisieren Sie die URL:
+
+```javascript
+// Zeile 17-18
+// Alte Version:
+this.tileServerUrl = 'http://localhost:8000/tiles';
+
+// Neue Version (ersetzen Sie YOUR-BUCKET-ID):
+this.tileServerUrl = 'https://pub-YOUR-BUCKET-ID.r2.dev';
+```
+
+**YOUR-BUCKET-ID finden:**
+- R2 Dashboard → Ihr Bucket → Settings → Public R2.dev bucket URL
+- Format: `https://pub-abc123def456.r2.dev`
+
+#### 4. Tiles hochladen
+
+**Option A: Wrangler CLI (empfohlen)**
+
+```bash
+# Wrangler installieren
+npm install -g wrangler
+
+# Login
+wrangler login
+
+# Tiles hochladen
+wrangler r2 object put windrad-tiles/tile_400_5728.bin --file=tiles/tile_400_5728.bin
+
+# Batch-Upload (alle Tiles)
+for file in tiles/*.bin; do
+  filename=$(basename "$file")
+  wrangler r2 object put windrad-tiles/$filename --file=$file
+done
+```
+
+**Option B: Web-Interface**
+
+- R2 → Bucket → Upload
+- Drag & Drop aller `.bin` Dateien aus `tiles/` Ordner
+
+#### 5. Testen & Deployen
+
+```bash
+# Änderungen committen
+git add js/elevation-service.js
+git commit -m "Migrate to Cloudflare R2"
+git push
+
+# Cloudflare Pages deployed automatisch (30-60 Sekunden)
+```
+
+**Testen:**
+1. `https://windrad-xxx.pages.dev` öffnen
+2. WKA auswählen
+3. Höhenprofil sollte ohne Fallback-Warnung laden
+
+#### 6. Custom Domain (optional)
+
+**Cloudflare Pages:**
+- Pages → Ihr Projekt → Custom domains → Add domain
+- Beispiel: `windrad.ihre-domain.de`
+
+**R2 Bucket:**
+- R2 → Settings → Custom domains → Add domain
+- Beispiel: `tiles.ihre-domain.de`
+
+#### Kosten
+
+- **Pages**: Komplett kostenlos (unlimited requests)
+- **R2 Storage**: Kostenlos bis 10 GB
+- **R2 Operations**: 10 Millionen Anfragen/Monat kostenlos
+- **Bandbreite**: KEINE Egress-Kosten (im Gegensatz zu AWS S3)
+
+**Für Windrad AR:**
+- ~50 Tiles × 500 KB = ~25 MB Storage
+- ~1000 Nutzer/Monat = weit unter Free Tier
+
 ## 📦 Höhendaten-Setup
 
 ### Quick Start (für Tests)

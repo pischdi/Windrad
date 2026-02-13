@@ -14,8 +14,9 @@ class ElevationService {
         this.cacheEnabled = CONFIG.ELEVATION.cacheEnabled;
         this.tileCache = new Map(); // Cache für geladene Tiles
 
-        // Tile Server URL (lokal für Entwicklung)
-        this.tileServerUrl = 'http://localhost:8000/tiles';
+        // Tile Server URL (Cloudflare R2)
+        // WICHTIG: Ersetzen Sie 'YOUR-BUCKET-ID' mit Ihrer tatsächlichen R2 Bucket-ID
+        this.tileServerUrl = 'https://pub-YOUR-BUCKET-ID.r2.dev';
     }
 
     /**

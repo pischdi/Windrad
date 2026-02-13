@@ -270,14 +270,199 @@ curl -I http://localhost:8000/tiles/tile_401_5729.bin
 - Gerät braucht Magnetometer
 - iOS: Berechtigung in Settings → Safari → Motion & Orientation
 
+## Production Deployment: Cloudflare R2
+
+Für den Production-Einsatz empfehlen wir Cloudflare R2 für Tile-Hosting.
+
+### Warum Cloudflare R2?
+
+✅ **Kostenlos** bis 10 GB Storage
+✅ **Keine Egress-Kosten** (im Gegensatz zu AWS S3)
+✅ **Globales CDN** für schnelle Auslieferung
+✅ **HTTPS** automatisch konfiguriert
+✅ **CORS** einfach einstellbar
+
+### Setup: Cloudflare R2
+
+#### 1. R2 Bucket erstellen
+
+```bash
+# Wrangler CLI installieren
+npm install -g wrangler
+
+# Login zu Cloudflare
+wrangler login
+
+# Bucket erstellen
+wrangler r2 bucket create windrad-tiles
+```
+
+**Oder via Web-Interface:**
+1. https://dash.cloudflare.com → R2 → Create bucket
+2. Name: `windrad-tiles`
+3. Location: Western Europe
+4. Public Access: Allow
+
+#### 2. Tiles hochladen
+
+**Option A: Mit Upload-Script (empfohlen)**
+
+```bash
+# Tiles aus Admin-Panel herunterladen
+# → windrad-tiles.txt
+
+# LAZ konvertieren (nur benötigte Tiles)
+python3 laz_to_binary.py ~/Downloads/dom_33401_5729.laz \
+  --tile-list windrad-tiles.txt \
+  -o tiles
+
+# Alle Tiles hochladen
+./upload_to_r2.sh
+```
+
+**Option B: Manuell mit Wrangler**
+
+```bash
+# Einzelnes Tile
+wrangler r2 object put windrad-tiles/tile_401_5729.bin \
+  --file=tiles/tile_401_5729.bin
+
+# Batch-Upload
+for file in tiles/*.bin; do
+  filename=$(basename "$file")
+  wrangler r2 object put windrad-tiles/$filename --file=$file
+done
+```
+
+**Option C: Web-Interface**
+
+1. R2 Dashboard → windrad-tiles → Upload
+2. Drag & Drop aller `.bin` Dateien
+
+#### 3. Public Access konfigurieren
+
+```bash
+# R2 Dashboard → Settings → Public Access
+# → Allow Access
+# → Enable R2.dev subdomain
+```
+
+**Public URL Format:**
+```
+https://pub-abc123def456.r2.dev/tile_401_5729.bin
+```
+
+**Custom Domain (optional):**
+```
+https://tiles.ihre-domain.de/tile_401_5729.bin
+```
+
+#### 4. Code anpassen
+
+In `js/elevation-service.js`:
+
+```javascript
+// Zeile 17-18 ändern:
+this.tileServerUrl = 'https://pub-YOUR-BUCKET-ID.r2.dev';
+```
+
+Ihre Bucket-ID finden Sie:
+- R2 Dashboard → windrad-tiles → Settings
+- Public R2.dev bucket URL kopieren
+
+#### 5. Testen
+
+```bash
+# Tile-URL testen
+curl -I https://pub-YOUR-BUCKET-ID.r2.dev/tile_401_5729.bin
+# Sollte: HTTP/2 200 OK
+
+# Web-App testen
+# → Öffne https://windrad-xxx.pages.dev
+# → Wähle WKA → Prüfe Höhenprofil lädt ohne Warnung
+```
+
+### Workflow: Admin → LAZ → R2 → Production
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. Admin-Panel: Windräder hinzufügen                   │
+│    → Tile-Liste herunterladen (windrad-tiles.txt)     │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│ 2. LAZ-Dateien besorgen (Brandenburg Geoportal)        │
+│    → dom_33401_5729.laz, dom_33402_5729.laz, ...      │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│ 3. Konvertieren (nur benötigte Tiles!)                 │
+│    python3 laz_to_binary.py input.laz \                │
+│      --tile-list windrad-tiles.txt                     │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│ 4. Upload zu Cloudflare R2                             │
+│    ./upload_to_r2.sh                                   │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│ 5. Code-Update & Deployment                            │
+│    git add js/elevation-service.js                     │
+│    git commit -m "Update tile server URL"              │
+│    git push                                            │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│ 6. Live auf Cloudflare Pages                           │
+│    https://windrad-xxx.pages.dev                       │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Kosten (Beispiel: 50 Tiles)
+
+**Storage:**
+- 50 Tiles × 500 KB = 25 MB
+- Kosten: **€0.00** (Free Tier: 10 GB)
+
+**Requests:**
+- 1000 User/Monat × 50 Tiles = 50,000 Requests
+- Kosten: **€0.00** (Free Tier: 10 Mio/Monat)
+
+**Egress:**
+- 1000 User × 25 MB = 25 GB Transfer
+- Kosten: **€0.00** (R2 hat KEINE Egress-Kosten!)
+
+**Total: €0.00/Monat** 🎉
+
+### Vergleich: R2 vs. GitHub Pages vs. Lokaler Server
+
+| Feature | Cloudflare R2 | GitHub Pages | Lokaler Server |
+|---------|---------------|--------------|----------------|
+| **Speed** | ~50ms (CDN) | ~300ms (EU) | Nur lokal |
+| **Kosten** | €0 (10GB free) | €0 (1GB limit) | Eigene Infra |
+| **Setup** | 10 Minuten | Nicht möglich* | 2 Minuten |
+| **HTTPS** | ✅ Auto | ✅ Auto | ❌ Manual |
+| **CORS** | ✅ Konfigurierbar | ❌ Eingeschränkt | ✅ Voll |
+| **Egress** | ✅ Unlimited free | ⚠️ Soft limit | ❌ N/A |
+
+*GitHub Pages kann keine Binary-Tiles hosten (max. 1GB, kein custom CORS)
+
 ## Nächste Schritte
 
-### Für Produktion
+### Für lokale Entwicklung
 
-1. **Mehr Tiles erstellen:** Alle LAZ-Dateien für Brandenburg konvertieren
-2. **Cloud-Hosting:** Tiles auf CDN hochladen (z.B. Cloudflare, AWS S3)
-3. **HTTPS:** Production-Server mit SSL-Zertifikat
-4. **Caching:** Browser-Cache + Service Worker für Offline-Support
+1. **Eine LAZ-Datei konvertieren:** Test-Tile erstellen
+2. **Tile-Server starten:** `python3 tile_server.py`
+3. **Web-App testen:** http://localhost:8080
+
+### Für Production
+
+1. **Cloudflare R2 Setup** (siehe oben)
+2. **Tile-Liste generieren:** Admin-Panel → Download
+3. **LAZ konvertieren:** Mit `--tile-list` Filter
+4. **Upload zu R2:** `./upload_to_r2.sh`
+5. **Deploy:** Code anpassen → Git push
 
 ### Für CODE-DE / EO-Lab Skalierung
 
