@@ -16,7 +16,7 @@ class ElevationService {
 
         // Tile Server URL (Cloudflare R2)
         // WICHTIG: Ersetzen Sie 'YOUR-BUCKET-ID' mit Ihrer tatsächlichen R2 Bucket-ID
-        this.tileServerUrl = 'https://pub-YOUR-BUCKET-ID.r2.dev';
+        this.tileServerUrl = 'https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev';
     }
 
     /**
