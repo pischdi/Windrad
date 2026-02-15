@@ -21,7 +21,7 @@ const CONFIG = {
     
     // Elevation Profile Settings
     ELEVATION: {
-        samples: 20,           // Anzahl Messpunkte zwischen User und Windrad
+        samples: 200,          // Anzahl Messpunkte zwischen User und Windrad (erhöht für bessere Verdeckungs-Erkennung)
         cacheEnabled: true,    // localStorage Cache aktivieren
         cacheDuration: 86400000 // 24 Stunden in Millisekunden
     },
