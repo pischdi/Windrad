@@ -300,8 +300,8 @@
                         Consider perspective, occlusion by buildings/trees, and proper scaling.`
                 };
 
-                // Call AI API endpoint (to be implemented as Cloudflare Worker)
-                const response = await fetch('/api/enhance-photo', {
+                // Call AI API endpoint (Cloudflare Worker with Claude Vision)
+                const response = await fetch('https://windrad-ai-worker.pischdi.workers.dev/api/enhance-photo', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -349,15 +349,22 @@
             } catch (error) {
                 console.error('AI enhancement error:', error);
 
-                // For now, show info message since backend isn't implemented yet
-                if (error.message.includes('Failed to fetch') || error.message.includes('API Error')) {
-                    alert('KI-Analyse-Feature kommt bald!\n\n' +
-                          'Dieses Feature sendet Ihr Foto an Claude AI für präzise Analyse und Positionierung.\n\n' +
-                          'Aktuell verwenden wir die lokale 3D-Projektion mit Höhenwinkeln und Pitch-Erkennung.\n\n' +
-                          '📍 Backend-Endpoint wird vorbereitet: Cloudflare Worker mit Claude API');
+                let errorMessage = 'KI-Analyse fehlgeschlagen.\n\n';
+
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage += 'Verbindung zum KI-Worker fehlgeschlagen.\n' +
+                                  'Bitte überprüfen Sie Ihre Internetverbindung.';
+                } else if (error.message.includes('API Error: 401')) {
+                    errorMessage += 'API-Authentifizierung fehlgeschlagen.\n' +
+                                  'Der Claude API Key muss überprüft werden.';
+                } else if (error.message.includes('API Error: 429')) {
+                    errorMessage += 'Zu viele Anfragen.\n' +
+                                  'Bitte warten Sie einen Moment und versuchen Sie es erneut.';
                 } else {
-                    alert('KI-Analyse fehlgeschlagen: ' + error.message);
+                    errorMessage += error.message;
                 }
+
+                alert(errorMessage);
             } finally {
                 // Reset button state
                 btn.disabled = false;
