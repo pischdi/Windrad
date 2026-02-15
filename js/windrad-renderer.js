@@ -75,7 +75,39 @@ class WindradRenderer {
             x = (width / 2) + pixelOffset;
         }
 
-        const y = height * 0.75;
+        // Calculate vertical position based on elevation angle and camera pitch
+        let y = height * 0.75; // Default: lower third
+
+        if (orientationData && orientationData.devicePitch !== undefined && orientationData.cameraHeight !== undefined) {
+            // Calculate elevation angle to turbine top
+            const cameraHeight = orientationData.cameraHeight;
+            const turbineTopHeight = totalHeight;
+            const heightDifference = turbineTopHeight - cameraHeight;
+
+            // Elevation angle in degrees (positive = above horizon)
+            const elevationAngle = Math.atan(heightDifference / distanceMeters) * (180 / Math.PI);
+
+            // Camera pitch: positive when tilting down, negative when tilting up
+            // For photo rendering, we want: pitch=0 means horizon at center
+            const cameraPitch = orientationData.devicePitch;
+
+            // Vertical FOV
+            const verticalFOV = fov; // 65 degrees
+
+            // Calculate horizon line position
+            // When pitch = 0, horizon is at center
+            // When pitch = +30 (tilting down), horizon moves up in frame
+            // When pitch = -30 (tilting up), horizon moves down in frame
+            const horizonY = (height / 2) - (cameraPitch / verticalFOV) * height;
+
+            // Position turbine relative to horizon based on elevation angle
+            // Positive elevation = above horizon = higher in frame (lower Y)
+            const turbineOffsetFromHorizon = -(elevationAngle / verticalFOV) * height;
+            y = horizonY + turbineOffsetFromHorizon;
+
+            // Clamp to keep turbine in frame
+            y = Math.max(pixelHeight / 2, Math.min(height - 50, y));
+        }
         
         // Proportions
         const towerWidth = pixelHeight * 0.06;

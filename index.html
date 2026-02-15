@@ -115,6 +115,9 @@
             <button class="btn btn-primary" onclick="downloadPhoto()">
                 💾 Foto speichern
             </button>
+            <button class="btn btn-ai" onclick="enhanceWithAI()" id="aiEnhanceBtn">
+                🤖 KI-Analyse verwenden
+            </button>
             <button class="btn btn-secondary" onclick="sharePhoto()">
                 📤 Teilen
             </button>
@@ -196,6 +199,96 @@
                 // Fallback to download
                 alert('Teilen wird nicht unterstützt. Foto wird heruntergeladen.');
                 downloadPhoto();
+            }
+        }
+
+        async function enhanceWithAI() {
+            if (!window.currentPhotoData) {
+                alert('Kein Foto verfügbar');
+                return;
+            }
+
+            const btn = document.getElementById('aiEnhanceBtn');
+            const originalText = btn.textContent;
+
+            try {
+                // Show loading state
+                btn.disabled = true;
+                btn.classList.add('loading');
+                btn.textContent = '🤖 KI analysiert...';
+
+                // Get turbine and location data
+                const turbine = window.selectedTurbine;
+                const userLocation = window.userLocation;
+
+                if (!turbine || !userLocation) {
+                    alert('Turbinen- oder Standortdaten fehlen');
+                    return;
+                }
+
+                // Prepare metadata for AI
+                const metadata = {
+                    turbine: {
+                        name: turbine.name,
+                        lat: turbine.lat,
+                        lon: turbine.lon,
+                        hubHeight: turbine.hubHeight,
+                        rotorDiameter: turbine.rotorDiameter,
+                        totalHeight: turbine.hubHeight + (turbine.rotorDiameter / 2)
+                    },
+                    camera: {
+                        lat: userLocation.lat,
+                        lng: userLocation.lng,
+                        altitude: userLocation.altitude || 1.8,
+                        distance: calcDistance(userLocation.lat, userLocation.lng, turbine.lat, turbine.lon) * 1000
+                    },
+                    instructions: `Analyze this photo and add a realistic wind turbine visualization at the correct position.
+                        The turbine is ${metadata.turbine.totalHeight}m tall and ${metadata.camera.distance.toFixed(0)}m away.
+                        Consider perspective, occlusion by buildings/trees, and proper scaling.`
+                };
+
+                // Call AI API endpoint (to be implemented as Cloudflare Worker)
+                const response = await fetch('/api/enhance-photo', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image: window.currentPhotoData,
+                        metadata: metadata
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                // Update the displayed image with AI-enhanced version
+                const resultImage = document.getElementById('resultImage');
+                resultImage.src = result.enhancedImage;
+                window.currentPhotoData = result.enhancedImage;
+
+                console.log('Photo enhanced with AI successfully');
+
+            } catch (error) {
+                console.error('AI enhancement error:', error);
+
+                // For now, show info message since backend isn't implemented yet
+                if (error.message.includes('Failed to fetch') || error.message.includes('API Error')) {
+                    alert('KI-Analyse-Feature kommt bald!\n\n' +
+                          'Dieses Feature sendet Ihr Foto an Claude AI für präzise Analyse und Positionierung.\n\n' +
+                          'Aktuell verwenden wir die lokale 3D-Projektion mit Höhenwinkeln und Pitch-Erkennung.\n\n' +
+                          '📍 Backend-Endpoint wird vorbereitet: Cloudflare Worker mit Claude API');
+                } else {
+                    alert('KI-Analyse fehlgeschlagen: ' + error.message);
+                }
+            } finally {
+                // Reset button state
+                btn.disabled = false;
+                btn.classList.remove('loading');
+                btn.textContent = originalText;
             }
         }
 

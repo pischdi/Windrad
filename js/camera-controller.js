@@ -8,6 +8,7 @@ class CameraController {
     constructor() {
         this.cameraStream = null;
         this.deviceOrientation = 0;
+        this.devicePitch = 0; // Camera tilt angle (beta)
         this.targetBearing = 0;
         this.isActive = false;
         this.onPhotoTaken = null; // Callback
@@ -142,6 +143,12 @@ class CameraController {
             newOrientation = 360 - event.alpha;
         }
 
+        // Track pitch (beta) for vertical positioning
+        // Beta ranges from -180 to 180 (positive = tilting forward/down)
+        if (event.beta !== null && event.beta !== undefined) {
+            this.devicePitch = event.beta;
+        }
+
         // Only update if we have a valid value
         if (newOrientation !== null) {
             this.deviceOrientation = newOrientation;
@@ -214,7 +221,9 @@ class CameraController {
         renderer.setVisibilityData(visibilityData);
         renderer.drawWindrad(ctx, canvas.width, canvas.height, turbine, userLocation, {
             deviceHeading: this.deviceOrientation,
-            targetBearing: this.targetBearing
+            devicePitch: this.devicePitch,
+            targetBearing: this.targetBearing,
+            cameraHeight: userLocation.altitude || 1.8 // Use GPS altitude or default 1.8m
         });
 
         // Get photo data
