@@ -55,7 +55,11 @@ class WindradRenderer {
         // Calculate horizontal position based on camera orientation
         let x = width / 2; // Default: center
 
-        if (orientationData && orientationData.deviceHeading !== undefined && orientationData.targetBearing !== undefined) {
+        // Check if AI provides position override
+        if (orientationData && orientationData.aiPosition) {
+            // Use AI-determined position
+            x = orientationData.aiPosition.x * width;
+        } else if (orientationData && orientationData.deviceHeading !== undefined && orientationData.targetBearing !== undefined) {
             // Calculate angle difference (how far off-center the turbine is)
             let angleDiff = orientationData.targetBearing - orientationData.deviceHeading;
 
@@ -78,7 +82,18 @@ class WindradRenderer {
         // Calculate vertical position based on elevation angle and camera pitch
         let y = height * 0.75; // Default: lower third
 
-        if (orientationData && orientationData.devicePitch !== undefined && orientationData.cameraHeight !== undefined) {
+        // Check if AI provides position override
+        if (orientationData && orientationData.aiPosition) {
+            // Use AI-determined position
+            y = orientationData.aiPosition.y * height;
+
+            // Override size if AI provides it
+            if (orientationData.aiPosition.sizePercent) {
+                const aiPixelHeight = orientationData.aiPosition.sizePercent * height;
+                // Update pixelHeight for AI recommendation
+                pixelHeight = Math.max(50, Math.min(height * 0.9, aiPixelHeight));
+            }
+        } else if (orientationData && orientationData.devicePitch !== undefined && orientationData.cameraHeight !== undefined) {
             // Calculate elevation angle to turbine top
             const cameraHeight = orientationData.cameraHeight;
             const turbineTopHeight = totalHeight;

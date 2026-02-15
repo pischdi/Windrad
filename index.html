@@ -202,6 +202,59 @@
             }
         }
 
+        /**
+         * Re-render photo using AI scene analysis data
+         */
+        async function rerenderWithAIData(originalPhotoData, sceneData, turbine, userLocation) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+
+                    // Draw original photo
+                    ctx.drawImage(img, 0, 0);
+
+                    // Create AI-enhanced orientation data
+                    const aiOrientationData = {
+                        deviceHeading: 0, // Not used when AI provides position
+                        devicePitch: sceneData.horizon?.cameraPitch || 0,
+                        targetBearing: 0, // Not used when AI provides position
+                        cameraHeight: userLocation.altitude || 1.8,
+                        // AI-specific overrides
+                        aiPosition: {
+                            x: sceneData.turbinePosition?.x || 0.5,
+                            y: sceneData.turbinePosition?.y || 0.5,
+                            sizePercent: sceneData.turbinePosition?.sizePercent || 0.15,
+                            opacity: (sceneData.turbinePosition?.opacity || 85) / 100
+                        },
+                        aiOcclusion: sceneData.occlusion
+                    };
+
+                    // Get renderer and visibility data
+                    const renderer = new WindradRenderer();
+                    const visibilityData = window.lastVisibilityData || null;
+                    renderer.setVisibilityData(visibilityData);
+
+                    // Draw turbine with AI-enhanced positioning
+                    renderer.drawWindrad(
+                        ctx,
+                        canvas.width,
+                        canvas.height,
+                        turbine,
+                        userLocation,
+                        aiOrientationData
+                    );
+
+                    // Return enhanced image
+                    resolve(canvas.toDataURL('image/jpeg', 0.95));
+                };
+                img.src = originalPhotoData;
+            });
+        }
+
         async function enhanceWithAI() {
             if (!window.currentPhotoData) {
                 alert('Kein Foto verfügbar');
@@ -265,12 +318,33 @@
 
                 const result = await response.json();
 
-                // Update the displayed image with AI-enhanced version
-                const resultImage = document.getElementById('resultImage');
-                resultImage.src = result.enhancedImage;
-                window.currentPhotoData = result.enhancedImage;
+                if (result.success && result.sceneData) {
+                    console.log('Claude scene analysis:', result.sceneData);
 
-                console.log('Photo enhanced with AI successfully');
+                    // Re-render photo using AI scene data
+                    const enhancedPhoto = await rerenderWithAIData(
+                        window.currentPhotoData,
+                        result.sceneData,
+                        turbine,
+                        userLocation
+                    );
+
+                    // Update display
+                    const resultImage = document.getElementById('resultImage');
+                    resultImage.src = enhancedPhoto;
+                    window.currentPhotoData = enhancedPhoto;
+
+                    // Show success message with confidence
+                    const confidence = result.sceneData.confidence || 0;
+                    alert(`✅ KI-Analyse abgeschlossen!\n\n` +
+                          `Vertrauen: ${(confidence * 100).toFixed(0)}%\n` +
+                          `Erkannte Objekte: ${result.sceneData.foregroundObjects?.length || 0}\n\n` +
+                          `Foto wurde mit Claude Vision-Daten neu gerendert.`);
+
+                    console.log('Photo enhanced with AI successfully');
+                } else {
+                    throw new Error('Invalid AI response');
+                }
 
             } catch (error) {
                 console.error('AI enhancement error:', error);
