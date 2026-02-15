@@ -122,8 +122,30 @@ class WindradRenderer {
 
             // Clamp to keep turbine in frame
             y = Math.max(pixelHeight / 2, Math.min(height - 50, y));
+
+            // DEBUG: Draw horizon line
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 5]);
+            ctx.beginPath();
+            ctx.moveTo(0, horizonY);
+            ctx.lineTo(width, horizonY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw horizon label
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
+            ctx.font = '12px Arial';
+            ctx.fillText(`Horizont (Pitch: ${cameraPitch.toFixed(1)}°)`, 10, horizonY - 5);
+
+            // Draw elevation info
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.8)';
+            ctx.fillText(`Elevation: ${elevationAngle.toFixed(2)}° | Y: ${y.toFixed(0)}px`, 10, 30);
+            ctx.fillText(`Höhe: ${heightDifference.toFixed(0)}m / ${distanceMeters.toFixed(0)}m`, 10, 45);
+            ctx.restore();
         }
-        
+
         // Proportions
         const towerWidth = pixelHeight * 0.06;
         const hubRadius = pixelHeight * 0.05;

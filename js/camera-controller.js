@@ -183,6 +183,7 @@ class CameraController {
         
         compass.textContent = formatDirection(this.deviceOrientation);
         debug.innerHTML = `Kompass: ${Math.round(this.deviceOrientation)}°<br>` +
+                         `Pitch: ${Math.round(this.devicePitch)}°<br>` +
                          `Ziel: ${Math.round(this.targetBearing)}°<br>` +
                          `Diff: ${Math.round(diff)}°`;
         
