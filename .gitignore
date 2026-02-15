@@ -49,9 +49,11 @@ scripts/download.log
 # Pipeline State
 scripts/pipeline_state.json
 
-# Wrangler
+# Wrangler & Node.js
 .wrangler/
 wrangler.toml
+node_modules/
+package-lock.json
 
 # Environment
 .env
