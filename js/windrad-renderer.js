@@ -19,40 +19,62 @@ class WindradRenderer {
     /**
      * Draw windrad overlay on canvas
      */
-    drawWindrad(ctx, width, height, turbine, userLocation) {
+    drawWindrad(ctx, width, height, turbine, userLocation, orientationData = null) {
         if (!turbine || !userLocation) return;
-        
+
         const distance = calcDistance(
             userLocation.lat, userLocation.lng,
             turbine.lat, turbine.lon
         );
         const distanceMeters = distance * 1000;
-        
+
         // Calculate turbine dimensions
         let totalHeight = turbine.hubHeight + (turbine.rotorDiameter / 2);
         let visibleHeight = totalHeight;
         let drawFromBottom = true;
-        
+
         // Apply visibility data if available
         if (this.visibilityData) {
             if (this.visibilityData.status === 'blocked') {
                 this._drawBlockedMessage(ctx, width, height);
                 return;
             }
-            
+
             if (this.visibilityData.status === 'partial') {
                 visibleHeight = this.visibilityData.visibleHeight;
                 drawFromBottom = false; // Draw from top
             }
         }
-        
+
         // Calculate pixel size based on angular size (field of view)
         // Typical smartphone camera FOV: 60-70 degrees vertical
         const fov = 65; // degrees (vertical field of view)
         const angularSizeDeg = Math.atan(visibleHeight / distanceMeters) * (180 / Math.PI);
         const pixelHeight = Math.max(50, Math.min(height * 0.9, (angularSizeDeg / fov) * height * 1.5));
-        
-        const x = width / 2;
+
+        // Calculate horizontal position based on camera orientation
+        let x = width / 2; // Default: center
+
+        if (orientationData && orientationData.deviceHeading !== undefined && orientationData.targetBearing !== undefined) {
+            // Calculate angle difference (how far off-center the turbine is)
+            let angleDiff = orientationData.targetBearing - orientationData.deviceHeading;
+
+            // Normalize to -180 to +180 range
+            if (angleDiff > 180) angleDiff -= 360;
+            if (angleDiff < -180) angleDiff += 360;
+
+            // Horizontal FOV for smartphones is typically 80-90 degrees
+            const horizontalFOV = 85; // degrees
+
+            // Convert angle to pixel offset
+            // If angle > FOV/2, turbine is out of frame (but we'll still show it partially)
+            const maxAngle = horizontalFOV / 2;
+            const normalizedAngle = Math.max(-maxAngle, Math.min(maxAngle, angleDiff));
+            const pixelOffset = (normalizedAngle / horizontalFOV) * width;
+
+            x = (width / 2) + pixelOffset;
+        }
+
         const y = height * 0.75;
         
         // Proportions

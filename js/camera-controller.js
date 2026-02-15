@@ -201,18 +201,21 @@ class CameraController {
     takePhoto(turbine, userLocation, visibilityData, renderer) {
         const video = document.getElementById('cameraPreview');
         const canvas = document.getElementById('resultCanvas');
-        
+
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-        
+
         const ctx = canvas.getContext('2d');
-        
+
         // Draw video frame
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // Draw windrad overlay
+
+        // Draw windrad overlay with orientation data
         renderer.setVisibilityData(visibilityData);
-        renderer.drawWindrad(ctx, canvas.width, canvas.height, turbine, userLocation);
+        renderer.drawWindrad(ctx, canvas.width, canvas.height, turbine, userLocation, {
+            deviceHeading: this.deviceOrientation,
+            targetBearing: this.targetBearing
+        });
 
         // Get photo data
         const dataURL = canvas.toDataURL('image/jpeg', 0.95);
