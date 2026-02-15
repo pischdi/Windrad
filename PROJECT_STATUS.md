@@ -52,7 +52,7 @@ Alle Systeme sind vollständig eingerichtet und funktionsfähig.
 ### Cloudflare Pages
 - ✅ Repository: GitHub
 - ✅ Auto-Deploy: Aktiviert
-- ✅ Production URL: [Ihre Pages-URL]
+- ✅ Production URL: https://windrad.pages.dev
 
 ---
 

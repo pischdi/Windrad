@@ -13,8 +13,8 @@ Alle Systeme sind vollständig eingerichtet und funktionsfähig.
 ## 🎯 Quick Reference
 
 ### Wichtige URLs
-- **Production App:** https://pischdi.github.io/Windrad/
-- **Admin Panel:** https://pischdi.github.io/Windrad/admin.html
+- **Production App:** https://windrad.pages.dev/
+- **Admin Panel:** https://windrad.pages.dev/admin.html
 - **R2 Tiles:** https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev/
 - **Cloudflare Dashboard:** https://dash.cloudflare.com/975505fa80cf3d0f8e0c3b049e9c6112/r2/overview
 
