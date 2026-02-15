@@ -102,15 +102,15 @@ class VisibilityCalculator {
      */
     drawProfile(canvas, visibilityData) {
         const ctx = canvas.getContext('2d');
-        
-        // Set canvas size
+
+        // Set canvas size (größer für bessere Lesbarkeit)
         canvas.width = canvas.offsetWidth;
-        canvas.height = 150;
-        
+        canvas.height = 220;
+
         const profile = visibilityData.profile;
         const width = canvas.width;
         const height = canvas.height;
-        const padding = 40;
+        const padding = { top: 20, right: 20, bottom: 30, left: 60 };
         
         // Clear canvas
         ctx.fillStyle = '#f9f9f9';
@@ -125,8 +125,8 @@ class VisibilityCalculator {
         const elevationRange = maxElevation - minElevation;
         
         // Scale functions
-        const scaleX = (index) => padding + (index / (profile.length - 1)) * (width - 2 * padding);
-        const scaleY = (elevation) => height - padding - ((elevation - minElevation) / elevationRange) * (height - 2 * padding);
+        const scaleX = (index) => padding.left + (index / (profile.length - 1)) * (width - padding.left - padding.right);
+        const scaleY = (elevation) => height - padding.bottom - ((elevation - minElevation) / elevationRange) * (height - padding.top - padding.bottom);
         
         // Draw terrain
         ctx.beginPath();
@@ -139,12 +139,36 @@ class VisibilityCalculator {
         ctx.stroke();
         
         // Fill terrain
-        ctx.lineTo(scaleX(profile.length - 1), height - padding);
-        ctx.lineTo(scaleX(0), height - padding);
+        ctx.lineTo(scaleX(profile.length - 1), height - padding.bottom);
+        ctx.lineTo(scaleX(0), height - padding.bottom);
         ctx.closePath();
         ctx.fillStyle = 'rgba(121, 85, 72, 0.2)';
         ctx.fill();
-        
+
+        // Draw Y-axis grid lines and labels
+        const numGridLines = 4;
+        ctx.strokeStyle = '#ddd';
+        ctx.lineWidth = 1;
+        ctx.fillStyle = '#666';
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'right';
+
+        for (let i = 0; i <= numGridLines; i++) {
+            const elevation = minElevation + (elevationRange / numGridLines) * i;
+            const y = scaleY(elevation);
+
+            // Grid line
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(width - padding.right, y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Label
+            ctx.fillText(Math.round(elevation) + 'm', padding.left - 5, y + 4);
+        }
+
         // Draw sight line
         ctx.beginPath();
         ctx.moveTo(scaleX(0), scaleY(visibilityData.userElevation));
@@ -192,13 +216,23 @@ class VisibilityCalculator {
             ctx.fill();
         }
         
-        // Draw labels
+        // Draw labels (größer und deutlicher)
         ctx.fillStyle = '#333';
-        ctx.font = '12px Arial';
+        ctx.font = 'bold 13px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText('Beobachter', padding + 5, scaleY(visibilityData.userElevation) - 10);
+
+        // Beobachter-Label
+        const observerY = scaleY(visibilityData.userElevation);
+        ctx.fillText('Beobachter', padding.left + 5, observerY - 12);
+        ctx.font = '11px Arial';
+        ctx.fillText(Math.round(visibilityData.userElevation) + 'm', padding.left + 5, observerY + 2);
+
+        // Windrad-Label
+        ctx.font = 'bold 13px Arial';
         ctx.textAlign = 'right';
-        ctx.fillText('Windrad', turbineX - 5, turbineTopY - 10);
+        ctx.fillText('Windrad', turbineX - 8, turbineTopY - 12);
+        ctx.font = '11px Arial';
+        ctx.fillText(Math.round(visibilityData.turbineTopElevation) + 'm', turbineX - 8, turbineTopY + 2);
     }
 
     /**
