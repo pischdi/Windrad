@@ -305,6 +305,31 @@ this.tileServerUrl = 'https://windrad-tiles.r2.dev/tiles';
 
 Details: [scripts/README.md](scripts/README.md)
 
+### 🤖 Vollautomatische Pipeline (NEU!)
+
+Für Production-Deployments steht eine vollautomatische Pipeline zur Verfügung:
+
+```bash
+# Komplette Pipeline: Download → Convert → Upload
+cd scripts
+./pipeline.sh --all
+
+# Status überwachen
+python3 monitor.py          # Einmalige Anzeige
+python3 monitor.py --watch  # Live-Updates
+```
+
+**Features:**
+- ✅ Automatischer Download von Brandenburg Geoportal (141 Tiles)
+- ✅ Batch-Konvertierung LAZ → Binary (mit Progress-Tracking)
+- ✅ Upload zu Cloudflare R2 (mit Retry-Logik)
+- ✅ State-Tracking und Logging
+- ✅ Resume-Fähigkeit bei Fehlern
+
+**Konfiguration:** Siehe [scripts/config.json](scripts/config.json)
+
+**Vollständige Dokumentation:** [PROJECT_STATUS.md](PROJECT_STATUS.md)
+
 ## 📝 WKA-Verwaltung
 
 ### Neues WKA hinzufügen

@@ -1,0 +1,30 @@
+{
+  "paths": {
+    "tile_list": "../tiles/windrad-tiles.txt",
+    "laz_downloads": "../laz_downloads",
+    "tiles_output": "../tiles_output",
+    "venv": "./venv"
+  },
+  "download": {
+    "base_url": "https://data.geobasis-bb.de/geobasis/daten/als/laz",
+    "retry_attempts": 3,
+    "retry_delay": 5,
+    "rate_limit_delay": 0.5
+  },
+  "convert": {
+    "tile_size": 1000,
+    "resolution": 1.0,
+    "parallel_workers": 4
+  },
+  "upload": {
+    "bucket_name": "windrad-tiles",
+    "r2_url": "https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev",
+    "parallel_uploads": 8,
+    "verify_after_upload": true
+  },
+  "notifications": {
+    "enabled": false,
+    "webhook_url": "",
+    "notify_on": ["completion", "error"]
+  }
+}

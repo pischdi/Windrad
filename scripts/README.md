@@ -11,6 +11,37 @@ Dieses Setup konvertiert LAZ-Dateien (LiDAR-Punktwolken) in kompakte Binary Heig
 2. HTTP Server → Stellt Tiles bereit
 3. Browser → Lädt Tiles on-demand
 
+## 🚀 Schnellstart: Vollautomatische Pipeline
+
+**NEU:** Komplette Automation für Download → Convert → Upload
+
+```bash
+
+# Einmalig: Setup
+cd scripts
+python3 -m venv venv
+source venv/bin/activate
+pip install laspy numpy lazrs
+
+# Komplette Pipeline ausführen (Download + Convert + Upload)
+./pipeline.sh --all
+
+# Status überwachen
+python3 monitor.py          # Einmalige Anzeige
+python3 monitor.py --watch  # Live-Updates (alle 5s)
+```
+
+**Einzelne Schritte:**
+```bash
+./pipeline.sh --download        # Nur Download
+./pipeline.sh --convert         # Nur Konvertierung
+./pipeline.sh --upload          # Nur Upload
+./pipeline.sh --convert --upload  # Convert + Upload (skip download)
+./pipeline.sh --resume          # Resume bei Fehler
+```
+
+**Konfiguration:** Siehe [config.json](config.json) für alle Einstellungen
+
 ## Installation
 
 ### Dependencies installieren

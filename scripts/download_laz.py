@@ -14,8 +14,8 @@ from pathlib import Path
 import time
 
 # Brandenburg Geoportal Base URL
-# Hinweis: Diese URL muss eventuell angepasst werden
-BASE_URL = "https://data.geobasis-bb.de/geobasis/daten/dom/laz"
+# ALS = Airborne Laser Scanning (Punktwolken-Daten)
+BASE_URL = "https://data.geobasis-bb.de/geobasis/daten/als/laz"
 
 def load_tile_list(tile_list_file):
     """
@@ -37,9 +37,9 @@ def load_tile_list(tile_list_file):
 
 def tile_to_laz_filename(tile_name):
     """
-    Konvertiert Tile-Name zu LAZ-Dateiname
+    Konvertiert Tile-Name zu ZIP-Dateiname
 
-    tile_401_5729.bin -> dom_33401_5729.laz
+    tile_459_5722.bin -> als_33459-5722.zip
     """
     # Extrahiere X und Y aus tile_X_Y.bin
     parts = tile_name.replace('.bin', '').split('_')
@@ -49,8 +49,8 @@ def tile_to_laz_filename(tile_name):
     tile_x = parts[1]
     tile_y = parts[2]
 
-    # Brandenburg LAZ-Dateien: dom_33{X}_{Y}.laz
-    laz_filename = f"dom_33{tile_x}_{tile_y}.laz"
+    # Brandenburg ALS ZIP-Dateien: als_33{X}-{Y}.zip (mit BINDESTRICH!)
+    laz_filename = f"als_33{tile_x}-{tile_y}.zip"
 
     return laz_filename
 
@@ -106,14 +106,20 @@ def download_laz_file(laz_filename, output_dir, base_url):
         return False
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 download_laz.py windrad-tiles.txt")
-        print("\nBeispiel:")
-        print("  python3 download_laz.py windrad-tiles.txt")
-        sys.exit(1)
+    import argparse
 
-    tile_list_file = sys.argv[1]
-    output_dir = Path("laz_downloads")
+    parser = argparse.ArgumentParser(
+        description="Brandenburg LAZ Downloader",
+        epilog="Beispiel: python3 download_laz.py windrad-tiles.txt --yes"
+    )
+    parser.add_argument("tile_list", help="Path to tile list file (e.g., windrad-tiles.txt)")
+    parser.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompt")
+    parser.add_argument("-o", "--output", default="laz_downloads", help="Output directory (default: laz_downloads)")
+
+    args = parser.parse_args()
+
+    tile_list_file = args.tile_list
+    output_dir = Path(args.output)
 
     print("🌍 Brandenburg LAZ Downloader")
     print("=" * 60)
@@ -141,14 +147,19 @@ def main():
 
     # Bestätigung
     print(f"\n⚠️  Geschätzte Größe: ~{len(laz_files) * 50} MB")
-    try:
-        response = input("\nDownload starten? (j/n): ")
-        if response.lower() not in ['j', 'ja', 'y', 'yes']:
-            print("Abgebrochen.")
+
+    if not args.yes:
+        try:
+            response = input("\nDownload starten? (j/n): ")
+            if response.lower() not in ['j', 'ja', 'y', 'yes']:
+                print("Abgebrochen.")
+                return
+        except KeyboardInterrupt:
+            print("\nAbgebrochen.")
             return
-    except KeyboardInterrupt:
-        print("\nAbgebrochen.")
-        return
+    else:
+        print("\n✓ Auto-confirm aktiviert (--yes)")
+
 
     # Download
     print(f"\n⬇️  Starte Download von {len(laz_files)} Dateien...")

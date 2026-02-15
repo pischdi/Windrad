@@ -46,8 +46,11 @@ class WindradRenderer {
             }
         }
         
-        // Calculate pixel size (perspective)
-        const pixelHeight = Math.max(30, Math.min(800, (visibleHeight / distanceMeters) * 500));
+        // Calculate pixel size based on angular size (field of view)
+        // Typical smartphone camera FOV: 60-70 degrees vertical
+        const fov = 65; // degrees (vertical field of view)
+        const angularSizeDeg = Math.atan(visibleHeight / distanceMeters) * (180 / Math.PI);
+        const pixelHeight = Math.max(50, Math.min(height * 0.9, (angularSizeDeg / fov) * height * 1.5));
         
         const x = width / 2;
         const y = height * 0.75;

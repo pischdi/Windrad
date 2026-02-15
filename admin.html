@@ -711,24 +711,77 @@
         }
         
         // Convert WGS84 to UTM33N (EPSG:25833)
+        // Accurate UTM conversion for Brandenburg (Zone 33N)
         function convertToUTM(lat, lng) {
-            const a = 6378137.0;
-            const k0 = 0.9996;
-            const e = 0.081819190842622;
+            // WGS84 parameters
+            const a = 6378137.0; // semi-major axis (m)
+            const f = 1 / 298.257223563; // flattening
+            const e = Math.sqrt(2 * f - f * f); // eccentricity
+            const e2 = e * e;
+            const e4 = e2 * e2;
+            const e6 = e4 * e2;
 
-            const latRad = lat * Math.PI / 180;
-            const lngRad = lng * Math.PI / 180;
-            const lngOrigin = 15 * Math.PI / 180;
+            // UTM Zone 33N parameters
+            const k0 = 0.9996; // scale factor
+            const E0 = 500000; // false easting
+            const N0 = 0; // false northing (northern hemisphere)
+            const lambda0 = 15 * Math.PI / 180; // central meridian (15°E for Zone 33)
 
-            const N = a / Math.sqrt(1 - e * e * Math.sin(latRad) * Math.sin(latRad));
-            const T = Math.tan(latRad) * Math.tan(latRad);
-            const C = e * e * Math.cos(latRad) * Math.cos(latRad) / (1 - e * e);
-            const A = (lngRad - lngOrigin) * Math.cos(latRad);
+            // Convert to radians
+            const phi = lat * Math.PI / 180;
+            const lambda = lng * Math.PI / 180;
 
-            const x = k0 * N * (A + (1 - T + C) * A * A * A / 6);
-            const y = k0 * N * latRad;
+            const sinPhi = Math.sin(phi);
+            const cosPhi = Math.cos(phi);
+            const tanPhi = Math.tan(phi);
 
-            return { x: 500000 + x, y: y };
+            // Calculate meridional arc (distance from equator)
+            const n = (a - a * Math.sqrt(1 - e2)) / (a + a * Math.sqrt(1 - e2));
+            const n2 = n * n;
+            const n3 = n2 * n;
+            const n4 = n3 * n;
+            const n5 = n4 * n;
+
+            const A_coeff = a / (1 + n) * (1 + n2/4 + n4/64 + n6/256);
+            const n6 = n5 * n;
+
+            const M = A_coeff * (
+                phi
+                - (3*n/2 - 27*n3/32 + 269*n5/512) * Math.sin(2*phi)
+                + (21*n2/16 - 55*n4/32) * Math.sin(4*phi)
+                - (151*n3/96) * Math.sin(6*phi)
+                + (1097*n4/512) * Math.sin(8*phi)
+            );
+
+            // Transverse Mercator parameters
+            const N = a / Math.sqrt(1 - e2 * sinPhi * sinPhi);
+            const T = tanPhi * tanPhi;
+            const C = e2 / (1 - e2) * cosPhi * cosPhi;
+            const A = (lambda - lambda0) * cosPhi;
+            const A2 = A * A;
+            const A3 = A2 * A;
+            const A4 = A3 * A;
+            const A5 = A4 * A;
+            const A6 = A5 * A;
+
+            // Calculate UTM Easting (x)
+            const x = E0 + k0 * N * (
+                A +
+                (1 - T + C) * A3 / 6 +
+                (5 - 18*T + T*T + 72*C - 58*e2/(1-e2)) * A5 / 120
+            );
+
+            // Calculate UTM Northing (y)
+            const y = N0 + k0 * (
+                M +
+                N * tanPhi * (
+                    A2 / 2 +
+                    (5 - T + 9*C + 4*C*C) * A4 / 24 +
+                    (61 - 58*T + T*T + 600*C - 330*e2/(1-e2)) * A6 / 720
+                )
+            );
+
+            return { x: x, y: y };
         }
 
         // Calculate required tiles for a turbine location

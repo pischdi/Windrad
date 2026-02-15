@@ -5,7 +5,7 @@
 
 # Konfiguration
 BUCKET_NAME="windrad-tiles"
-TILES_DIR="tiles"
+TILES_DIR="tiles_output"
 
 # Farben für Output
 GREEN='\033[0;32m'
@@ -37,11 +37,11 @@ if [ ! -d "$TILES_DIR" ]; then
     exit 1
 fi
 
-# Count tiles
-TILE_COUNT=$(ls -1 "$TILES_DIR"/*.bin 2>/dev/null | wc -l)
+# Count tiles (GZIP compressed)
+TILE_COUNT=$(ls -1 "$TILES_DIR"/*.bin.gz 2>/dev/null | wc -l)
 
 if [ "$TILE_COUNT" -eq 0 ]; then
-    echo -e "${RED}❌ Keine .bin Dateien in $TILES_DIR gefunden${NC}"
+    echo -e "${RED}❌ Keine .bin.gz Dateien in $TILES_DIR gefunden${NC}"
     exit 1
 fi
 
@@ -66,12 +66,12 @@ echo -e "${BLUE}Starte Upload...${NC}\n"
 UPLOADED=0
 FAILED=0
 
-for file in "$TILES_DIR"/*.bin; do
+for file in "$TILES_DIR"/*.bin.gz; do
     filename=$(basename "$file")
 
     echo -n "Uploading $filename... "
 
-    if wrangler r2 object put "$BUCKET_NAME/$filename" --file="$file" > /dev/null 2>&1; then
+    if wrangler r2 object put "$BUCKET_NAME/$filename" --file="$file" --content-type="application/gzip" --content-encoding="gzip" --remote > /dev/null 2>&1; then
         echo -e "${GREEN}✓${NC}"
         ((UPLOADED++))
     else
