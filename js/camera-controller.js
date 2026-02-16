@@ -234,6 +234,13 @@ class CameraController {
         window.currentPhotoData = dataURL;
         window.currentPhotoFilename = `windrad_${turbine.name}_${Date.now()}.jpg`;
 
+        // Store metadata for AI analysis
+        window.currentPhotoMetadata = {
+            turbine: turbine,
+            userLocation: userLocation,
+            visibilityData: visibilityData
+        };
+
         // Show photo result view
         const resultImage = document.getElementById('resultImage');
         const photoResult = document.getElementById('photoResult');
