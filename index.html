@@ -111,6 +111,33 @@
             <img id="resultImage" src="" alt="Windrad Foto" />
         </div>
 
+        <!-- AI Analysis Panel -->
+        <div class="ai-analysis-panel" id="aiAnalysisPanel">
+            <h3>🤖 Gemini Vision Analyse</h3>
+            <div class="ai-analysis-grid">
+                <div class="ai-stat">
+                    <div class="ai-stat-label">Vertrauen</div>
+                    <div class="ai-stat-value" id="aiConfidence">--</div>
+                </div>
+                <div class="ai-stat">
+                    <div class="ai-stat-label">Erkannte Objekte</div>
+                    <div class="ai-stat-value" id="aiObjectCount">--</div>
+                </div>
+                <div class="ai-stat">
+                    <div class="ai-stat-label">Horizont Position</div>
+                    <div class="ai-stat-value" id="aiHorizon">--</div>
+                </div>
+                <div class="ai-stat">
+                    <div class="ai-stat-label">Sichtbarkeit</div>
+                    <div class="ai-stat-value" id="aiVisibility">--</div>
+                </div>
+            </div>
+            <div class="ai-objects-list" id="aiObjectsList" style="display: none;">
+                <h4>🏗️ Erkannte Hindernisse</h4>
+                <div id="aiObjectsContent"></div>
+            </div>
+        </div>
+
         <div class="result-controls">
             <button class="btn btn-primary" onclick="downloadPhoto()">
                 💾 Foto speichern
@@ -321,7 +348,7 @@
                 const result = await response.json();
 
                 if (result.success && result.sceneData) {
-                    console.log('Claude scene analysis:', result.sceneData);
+                    console.log('Gemini scene analysis:', result.sceneData);
 
                     // Re-render photo using AI scene data
                     const enhancedPhoto = await rerenderWithAIData(
@@ -336,12 +363,42 @@
                     resultImage.src = enhancedPhoto;
                     window.currentPhotoData = enhancedPhoto;
 
-                    // Show success message with confidence
+                    // Populate AI analysis panel
+                    const aiPanel = document.getElementById('aiAnalysisPanel');
                     const confidence = result.sceneData.confidence || 0;
+                    const foregroundObjects = result.sceneData.foregroundObjects || [];
+                    const occlusion = result.sceneData.occlusion || {};
+                    const horizon = result.sceneData.horizon || {};
+
+                    document.getElementById('aiConfidence').textContent = `${(confidence * 100).toFixed(0)}%`;
+                    document.getElementById('aiObjectCount').textContent = foregroundObjects.length;
+                    document.getElementById('aiHorizon').textContent = `${(horizon.yPosition * 100).toFixed(0)}%`;
+                    document.getElementById('aiVisibility').textContent = `${occlusion.visiblePercent || 100}%`;
+
+                    // Show objects list if there are any
+                    if (foregroundObjects.length > 0) {
+                        const objectsList = document.getElementById('aiObjectsList');
+                        const objectsContent = document.getElementById('aiObjectsContent');
+
+                        objectsContent.innerHTML = foregroundObjects.map(obj => {
+                            const blocking = obj.blocksTurbine ? '<span class="ai-object-warning">⚠️ blockiert</span>' : '✓ kein Hindernis';
+                            return `<div class="ai-object-item">
+                                <strong>${obj.type}</strong> bei ${(obj.position?.x * 100).toFixed(0)}% / ${(obj.position?.y * 100).toFixed(0)}%
+                                <br>~${obj.estimatedDistance} entfernt - ${blocking}
+                            </div>`;
+                        }).join('');
+
+                        objectsList.style.display = 'block';
+                    }
+
+                    // Show the AI panel
+                    aiPanel.classList.add('active');
+
+                    // Show success alert
                     alert(`✅ KI-Analyse abgeschlossen!\n\n` +
                           `Vertrauen: ${(confidence * 100).toFixed(0)}%\n` +
-                          `Erkannte Objekte: ${result.sceneData.foregroundObjects?.length || 0}\n\n` +
-                          `Foto wurde mit Claude Vision-Daten neu gerendert.`);
+                          `Erkannte Objekte: ${foregroundObjects.length}\n\n` +
+                          `Foto wurde mit Gemini Vision-Daten neu gerendert.`);
 
                     console.log('Photo enhanced with AI successfully');
                 } else {
@@ -356,9 +413,9 @@
                 if (error.message.includes('Failed to fetch')) {
                     errorMessage += 'Verbindung zum KI-Worker fehlgeschlagen.\n' +
                                   'Bitte überprüfen Sie Ihre Internetverbindung.';
-                } else if (error.message.includes('API Error: 401')) {
+                } else if (error.message.includes('API Error: 401') || error.message.includes('API Error: 403')) {
                     errorMessage += 'API-Authentifizierung fehlgeschlagen.\n' +
-                                  'Der Claude API Key muss überprüft werden.';
+                                  'Der Gemini API Key muss überprüft werden.';
                 } else if (error.message.includes('API Error: 429')) {
                     errorMessage += 'Zu viele Anfragen.\n' +
                                   'Bitte warten Sie einen Moment und versuchen Sie es erneut.';
@@ -379,6 +436,12 @@
             const photoResult = document.getElementById('photoResult');
             if (photoResult) {
                 photoResult.classList.remove('active');
+            }
+
+            // Hide AI analysis panel
+            const aiPanel = document.getElementById('aiAnalysisPanel');
+            if (aiPanel) {
+                aiPanel.classList.remove('active');
             }
 
             // Clear photo data

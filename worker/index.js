@@ -1,10 +1,10 @@
 /**
  * ========================================
  * Windrad AR - AI Photo Analysis Worker
- * Cloudflare Worker with Claude Vision API
+ * Cloudflare Worker with Gemini Vision API
  * ========================================
  *
- * Claude analyzes the photo and provides scene data.
+ * Gemini analyzes the photo and provides scene data.
  * Frontend uses this data to render turbine more accurately.
  */
 
@@ -20,6 +20,25 @@ export default {
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
+    }
+
+    // Debug endpoint to list available models
+    if (request.url.includes('/api/list-models')) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${env.GEMINI_API_KEY}`
+        );
+        const data = await response.json();
+        return new Response(JSON.stringify(data, null, 2), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
     }
 
     // Only accept POST requests
@@ -46,21 +65,21 @@ export default {
       // Extract base64 image data (remove data URL prefix)
       const base64Image = image.split(',')[1];
 
-      // Prepare prompt for Claude
+      // Prepare prompt for Gemini
       const prompt = buildAnalysisPrompt(metadata);
 
-      // Call Claude Vision API for scene analysis
+      // Call Gemini Vision API for scene analysis
       const sceneData = await analyzeScene(
         base64Image,
         prompt,
-        env.ANTHROPIC_API_KEY
+        env.GEMINI_API_KEY
       );
 
       // Return scene analysis data
       return new Response(JSON.stringify({
         success: true,
         sceneData: sceneData,
-        message: 'Scene analyzed successfully by Claude Vision'
+        message: 'Scene analyzed successfully by Gemini Vision'
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -81,7 +100,7 @@ export default {
 };
 
 /**
- * Build analysis prompt for Claude Vision API
+ * Build analysis prompt for Gemini Vision API
  */
 function buildAnalysisPrompt(metadata) {
   const { turbine, camera } = metadata;
@@ -138,7 +157,7 @@ RESPOND IN JSON FORMAT:
       "position": {"x": 0.3, "y": 0.6},
       "estimatedHeight": "6m",
       "estimatedDistance": "25m",
-      "blocksT urbine": true
+      "blocksTurbine": true
     }
   ],
   "turbinePosition": {
@@ -161,50 +180,46 @@ Be precise and analytical. This data will be used to render the turbine accurate
 }
 
 /**
- * Call Claude Vision API for scene analysis
+ * Call Gemini Vision API for scene analysis
+ * Using gemini-2.5-flash with v1beta API
  */
 async function analyzeScene(base64Image, prompt, apiKey) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01',
-      'x-api-key': apiKey
-    },
-    body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 2048,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'image/jpeg',
-                data: base64Image
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                inline_data: {
+                  mime_type: 'image/jpeg',
+                  data: base64Image
+                }
+              },
+              {
+                text: prompt
               }
-            },
-            {
-              type: 'text',
-              text: prompt
-            }
-          ]
-        }
-      ]
-    })
-  });
+            ]
+          }
+        ]
+      })
+    }
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Claude API error: ${response.status} - ${errorText}`);
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
   }
 
   const result = await response.json();
-  const analysisText = result.content[0].text;
+  const analysisText = result.candidates[0].content.parts[0].text;
 
-  // Extract JSON from Claude's response
+  // Extract JSON from Gemini's response
   const jsonMatch = analysisText.match(/```json\n([\s\S]*?)\n```/);
 
   if (jsonMatch) {

@@ -497,3 +497,94 @@ body {
     flex: 1;
     min-width: 120px;
 }
+
+/* ========================================
+   AI ANALYSIS PANEL
+   ======================================== */
+
+.ai-analysis-panel {
+    background: rgba(102, 126, 234, 0.15);
+    border: 2px solid rgba(102, 126, 234, 0.4);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem;
+    color: white;
+    display: none;
+}
+
+.ai-analysis-panel.active {
+    display: block;
+}
+
+.ai-analysis-panel h3 {
+    margin: 0 0 0.8rem 0;
+    font-size: 1rem;
+    color: #a5b4fc;
+}
+
+.ai-analysis-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+}
+
+.ai-stat {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 0.6rem;
+    border-radius: 6px;
+    border-left: 3px solid #667eea;
+}
+
+.ai-stat-label {
+    font-size: 0.75rem;
+    color: #a5b4fc;
+    margin-bottom: 0.3rem;
+}
+
+.ai-stat-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: white;
+}
+
+.ai-objects-list {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 0.8rem;
+    border-radius: 6px;
+    margin-top: 0.5rem;
+    border-left: 3px solid #f59e0b;
+}
+
+.ai-objects-list h4 {
+    font-size: 0.85rem;
+    color: #fbbf24;
+    margin: 0 0 0.5rem 0;
+}
+
+.ai-object-item {
+    font-size: 0.8rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e5e7eb;
+}
+
+.ai-object-item:last-child {
+    border-bottom: none;
+}
+
+.ai-object-warning {
+    color: #fbbf24;
+    font-weight: 500;
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.btn-secondary:active {
+    transform: scale(0.98);
+    background: rgba(255, 255, 255, 0.25);
+}
