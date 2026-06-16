@@ -49,6 +49,18 @@ export default {
       });
     }
 
+    // Photo analysis endpoint (matches the frontend call)
+    const url = new URL(request.url);
+    if (url.pathname !== '/api/enhance-photo') {
+      return new Response(JSON.stringify({
+        error: 'Not found',
+        hint: 'POST your image to /api/enhance-photo'
+      }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     try {
       // Parse request body
       const { image, metadata } = await request.json();

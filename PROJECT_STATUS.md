@@ -1,10 +1,26 @@
 # Windrad AR - Project Status
 
-**Letzte Aktualisierung:** 2026-02-15
+**Letzte Aktualisierung:** 2026-06-16
 
-## ✅ Projekt-Status: PRODUKTIONSBEREIT
+## ✅ Projekt-Status: PRODUKTIONSBEREIT (Kern) + KI-Foto-Analyse (Beta)
 
-Alle Systeme sind vollständig eingerichtet und funktionsfähig.
+Kern-App (Höhendaten, Sichtbarkeit, AR-Overlay) ist produktiv.
+Neu hinzugekommen: KI-gestützte Foto-Analyse via Cloudflare Worker + Gemini Vision (Beta).
+
+---
+
+## 🤖 KI-Foto-Analyse (Cloudflare Worker + Gemini Vision)
+
+- **Worker:** `worker/index.js` — analysiert ein Kamerafoto mit `gemini-2.5-flash`
+  und liefert Szenendaten (Horizont, Vordergrund-Objekte, empfohlene Turbinen-Position/-Größe,
+  Verdeckung, Lichtverhältnisse) als JSON zurück.
+- **Endpoint:** `POST https://windrad-ai-worker.pischdi.workers.dev/api/enhance-photo`
+  - Body: `{ image: <dataURL>, metadata: { turbine, camera } }`
+  - Zusätzlich: `GET /api/list-models` (Debug, listet verfügbare Gemini-Modelle)
+- **Frontend:** `index.html` komprimiert das Bild, ruft den Worker (60s Timeout) und
+  rendert das Windrad anhand der Szenendaten neu; AI-Panel zeigt Confidence/Objekte/Horizont/Sichtbarkeit.
+- **Secret:** `GEMINI_API_KEY` muss im Worker gesetzt sein (`wrangler secret put GEMINI_API_KEY`).
+- **Deploy:** `cd worker && wrangler login && wrangler deploy`
 
 ---
 

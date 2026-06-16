@@ -4,9 +4,9 @@
 
 ---
 
-## ✅ Projekt-Status: PRODUKTIONSBEREIT
+## ✅ Projekt-Status: PRODUKTIONSBEREIT (Kern) + KI-Foto-Analyse (Beta)
 
-Alle Systeme sind vollständig eingerichtet und funktionsfähig.
+Kern-App produktiv. Aktueller Arbeitsstrang: KI-Foto-Analyse (Cloudflare Worker + Gemini Vision).
 
 ---
 
@@ -15,8 +15,14 @@ Alle Systeme sind vollständig eingerichtet und funktionsfähig.
 ### Wichtige URLs
 - **Production App:** https://windrad.pages.dev/
 - **Admin Panel:** https://windrad.pages.dev/admin.html
+- **AI Worker:** https://windrad-ai-worker.pischdi.workers.dev/api/enhance-photo (POST)
 - **R2 Tiles:** https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev/
 - **Cloudflare Dashboard:** https://dash.cloudflare.com/975505fa80cf3d0f8e0c3b049e9c6112/r2/overview
+
+### KI-Foto-Analyse (Beta)
+- Worker `worker/index.js`, Gemini `gemini-2.5-flash`, Endpoint `/api/enhance-photo`.
+- Secret nötig: `GEMINI_API_KEY` (`wrangler secret put`).
+- Deploy: `cd worker && wrangler login && wrangler deploy`.
 
 ### Wichtige Dateien
 - **Projekt-Status:** [PROJECT_STATUS.md](PROJECT_STATUS.md) - Umfassende Dokumentation
