@@ -2,8 +2,49 @@
 
 **Stand:** 2026-06-25 · **Status:** Schritte 1–3 live → https://elevation-api.pischdi.workers.dev
 
-> Umgesetzt: `/v1/point`, `/v1/profile`, `/v1/line-of-sight`, `/v1/health`.
-> Offen: API-Keys/Rate-Limit (Schritt 4), OpenAPI + Doku-Seite (Schritt 5).
+> Umgesetzt: `/v1/point`, `/v1/profile`, `/v1/line-of-sight`, `/v1/health`,
+> API-Keys + Rate-Limit (Schritt 4). Offen: OpenAPI + Doku-Seite (Schritt 5).
+
+### Auth & Rate-Limit (Schritt 4)
+
+- Header `X-API-Key`. Keys liegen im KV-Namespace `API_KEYS` (Key → `{name, tier}`).
+- Anonym (ohne Key): **30 Anfragen / 60 s pro IP** (native `ratelimit`-Binding `RL_ANON`).
+- Mit gültigem Key: **600 Anfragen / 60 s pro Key** (`RL_KEY`). Ungültiger Key → 401.
+- Hinweis: Das `ratelimit`-Binding ist Missbrauchsschutz (Fenster 10/60 s), **keine**
+  Monatsquote. Echte Kontingente/Billing bräuchten D1 oder Durable Objects (später).
+- Key anlegen:
+  `wrangler kv key put --namespace-id=<API_KEYS-id> "<key>" '{"name":"...","tier":"..."}' --remote`
+
+#### Bindings (elevation-api/wrangler.toml — ist gitignored, daher hier dokumentiert)
+
+```toml
+name = "elevation-api"
+main = "index.js"
+compatibility_date = "2024-09-01"
+workers_dev = true
+
+[[r2_buckets]]
+binding = "TILES"
+bucket_name = "windrad-tiles"
+
+[[kv_namespaces]]
+binding = "API_KEYS"
+id = "7c5f27447d1d425e8b02c6f3ef66af72"
+
+[[ratelimits]]
+name = "RL_ANON"
+namespace_id = "2001"
+[ratelimits.simple]
+limit = 30
+period = 60
+
+[[ratelimits]]
+name = "RL_KEY"
+namespace_id = "2002"
+[ratelimits.simple]
+limit = 600
+period = 60
+```
 
 Aufbauend auf der bestehenden Brandenburg-ALS-Pipeline (LAZ → Uint16-Höhengrids, 1m,
 auf Cloudflare R2) und der vorhandenen Sichtbarkeitslogik
@@ -98,7 +139,7 @@ Client → Cloudflare Worker (elevation-api)
 | 1 | Worker-Gerüst + Routing + R2-Tile-Loader + Punkt-Interpolation (`/v1/point`) | ✅ live |
 | 2 | Profil-Endpunkt (`/v1/profile`) | ✅ live |
 | 3 | Line-of-Sight (`/v1/line-of-sight`) — Portierung aus `visibility-calculator.js` | ✅ live |
-| 4 | API-Keys + Rate-Limit (KV) | offen |
+| 4 | API-Keys (KV) + Rate-Limit (ratelimit-Binding) | ✅ live |
 | 5 | OpenAPI-Spec + Doku-Seite | offen |
 
 ---

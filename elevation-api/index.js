@@ -42,9 +42,14 @@ export default {
     const url = new URL(request.url);
 
     try {
+      // Health-Check: ohne Auth/Rate-Limit.
       if (url.pathname === '/v1/health') {
         return json({ status: 'ok', service: 'elevation-api', version: 'mvp-1' });
       }
+
+      // Auth + Rate-Limit für alle Datenendpunkte.
+      const gate = await authAndRateLimit(request, env);
+      if (gate) return gate; // 401 / 429
 
       if (url.pathname === '/v1/point') {
         return await handlePoint(url, env);
@@ -64,6 +69,55 @@ export default {
     }
   },
 };
+
+/**
+ * Auth + Rate-Limiting für Datenendpunkte.
+ *
+ * - Mit Header `X-API-Key`: Key wird gegen KV (API_KEYS) geprüft.
+ *   Ungültig → 401. Gültig → großzügiges Limit pro Key (RL_KEY).
+ * - Ohne Key: anonymer Zugang mit striktem Limit pro Client-IP (RL_ANON).
+ *
+ * Gibt eine Fehler-Response zurück, wenn blockiert werden soll, sonst null.
+ * Fehlt ein Binding (z.B. lokal), wird das Gate übersprungen (fail-open).
+ */
+async function authAndRateLimit(request, env) {
+  const apiKey = request.headers.get('X-API-Key');
+
+  if (apiKey) {
+    if (env.API_KEYS) {
+      const record = await env.API_KEYS.get(apiKey);
+      if (!record) {
+        return json({ error: 'Invalid API key', code: 'UNAUTHORIZED' }, 401);
+      }
+    }
+    if (env.RL_KEY) {
+      const { success } = await env.RL_KEY.limit({ key: apiKey });
+      if (!success) return rateLimited(60);
+    }
+    return null;
+  }
+
+  // Anonym: pro Client-IP begrenzen.
+  if (env.RL_ANON) {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const { success } = await env.RL_ANON.limit({ key: ip });
+    if (!success) return rateLimited(60);
+  }
+  return null;
+}
+
+function rateLimited(retryAfterSeconds) {
+  return new Response(
+    JSON.stringify({
+      error: 'Rate limit exceeded. Add an API key (header X-API-Key) for a higher limit.',
+      code: 'RATE_LIMITED',
+    }),
+    {
+      status: 429,
+      headers: { ...CORS, 'Content-Type': 'application/json', 'Retry-After': String(retryAfterSeconds) },
+    }
+  );
+}
 
 /**
  * GET /v1/point?lat=<>&lon=<>
