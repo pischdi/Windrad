@@ -9,11 +9,11 @@
  *
  * Endpunkte:
  *   GET /v1/point?lat=<>&lon=<>          → Höhe an einem Punkt (bilinear interpoliert)
+ *   GET /v1/profile?from=<lat,lon>&to=<lat,lon>&samples=<n>
+ *                                        → Höhenprofil entlang einer Linie
+ *   GET /v1/line-of-sight?observer=<lat,lon[,h]>&target=<lat,lon[,h]>&samples=<n>
+ *                                        → Sichtbarkeit / verdeckter Anteil
  *   GET /v1/health                       → Liveness-Check
- *
- * Geplant (Schritt 2/3):
- *   GET /v1/profile      → Höhenprofil entlang einer Linie
- *   GET /v1/line-of-sight → Sichtbarkeit / verdeckter Anteil
  *
  * Tiles werden bevorzugt über das R2-Binding `TILES` gelesen; ist keines
  * konfiguriert, fällt der Worker auf die öffentliche R2-URL zurück.
@@ -21,6 +21,11 @@
 
 const TILE_SIZE = 1000;          // Meter pro Kachelkante = Gridzellen pro Kante
 const PUBLIC_R2 = 'https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev';
+const DEFAULT_SAMPLES = 200;     // Stützpunkte für Profil/LoS (wie Frontend-CONFIG)
+const MAX_SAMPLES = 1000;        // Obergrenze, begrenzt Tile-Zugriffe pro Request
+const EYE_HEIGHT = 1.7;          // Standard-Augenhöhe Beobachter (m)
+const BLOCKED_THRESHOLD = 10;    // < 10% sichtbar  → blocked
+const PARTIAL_THRESHOLD = 70;    // < 70% sichtbar  → partial
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -43,6 +48,14 @@ export default {
 
       if (url.pathname === '/v1/point') {
         return await handlePoint(url, env);
+      }
+
+      if (url.pathname === '/v1/profile') {
+        return await handleProfile(url, env);
+      }
+
+      if (url.pathname === '/v1/line-of-sight') {
+        return await handleLineOfSight(url, env);
       }
 
       return json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
@@ -79,6 +92,135 @@ async function handlePoint(url, env) {
     source: 'DGM Brandenburg (ALS)',
     resolution_m: 1,
   });
+}
+
+/**
+ * GET /v1/profile?from=<lat,lon>&to=<lat,lon>&samples=<n>
+ */
+async function handleProfile(url, env) {
+  const from = parseLatLon(url.searchParams.get('from'), 'from');
+  const to = parseLatLon(url.searchParams.get('to'), 'to');
+  const samples = parseSamples(url.searchParams.get('samples'));
+
+  const { profile, distance } = await buildProfile(from, to, samples, env);
+
+  return json({
+    from: { lat: from.lat, lon: from.lon },
+    to: { lat: to.lat, lon: to.lon },
+    distance_m: round2(distance),
+    samples,
+    unit: 'm',
+    source: 'DGM Brandenburg (ALS)',
+    profile: profile.map((p) => ({
+      lat: round6(p.lat),
+      lon: round6(p.lon),
+      distance_m: round2(p.distance_m),
+      elevation: p.elevation === null ? null : round2(p.elevation),
+    })),
+  });
+}
+
+/**
+ * GET /v1/line-of-sight?observer=<lat,lon[,h]>&target=<lat,lon[,h]>&samples=<n>
+ *
+ * Portierung von js/visibility-calculator.js: Sichtlinie von der Augenhöhe
+ * des Beobachters zur Oberkante des Ziels; jeder Geländepunkt wird auf
+ * Überhöhung geprüft.
+ */
+async function handleLineOfSight(url, env) {
+  const obs = parseCoordWithHeight(url.searchParams.get('observer'), 'observer', EYE_HEIGHT);
+  const tgt = parseCoordWithHeight(url.searchParams.get('target'), 'target', 0);
+  const samples = parseSamples(url.searchParams.get('samples'));
+
+  const { profile, distance } = await buildProfile(obs, tgt, samples, env);
+
+  const groundObs = profile[0].elevation;
+  const groundTgt = profile[profile.length - 1].elevation;
+  if (groundObs === null || groundTgt === null) {
+    throw apiError('Observer or target ground point has no elevation data (outside coverage)', 404, 'OUT_OF_COVERAGE');
+  }
+
+  const eyeElevation = groundObs + obs.h;
+  const targetTop = groundTgt + tgt.h;
+  const slope = distance > 0 ? (targetTop - eyeElevation) / distance : 0;
+
+  // Geländepunkt mit der stärksten Überhöhung über der Sichtlinie suchen.
+  let maxObstruction = 0;
+  let blockedAt = null;
+  for (let i = 1; i < profile.length - 1; i++) {
+    const terrain = profile[i].elevation;
+    if (terrain === null) continue;
+    const sightHeight = eyeElevation + slope * profile[i].distance_m;
+    if (terrain > sightHeight) {
+      const obstruction = terrain - sightHeight;
+      if (obstruction > maxObstruction) {
+        maxObstruction = obstruction;
+        blockedAt = {
+          lat: round6(profile[i].lat),
+          lon: round6(profile[i].lon),
+          elevation: round2(terrain),
+          distance_m: round2(profile[i].distance_m),
+        };
+      }
+    }
+  }
+
+  // Sichtbaren Anteil der Zielhöhe bestimmen.
+  let visibleHeight = tgt.h;
+  let visiblePercent = 100;
+  let status = 'visible';
+
+  if (blockedAt) {
+    const blockedHeight = Math.max(0, blockedAt.elevation - eyeElevation - slope * blockedAt.distance_m);
+    visibleHeight = Math.max(0, tgt.h - blockedHeight);
+    visiblePercent = tgt.h > 0 ? (visibleHeight / tgt.h) * 100 : 0;
+    if (visiblePercent < BLOCKED_THRESHOLD) status = 'blocked';
+    else if (visiblePercent < PARTIAL_THRESHOLD) status = 'partial';
+  }
+
+  return json({
+    visible: status === 'visible',   // Zielspitze ungehindert sichtbar
+    status,                          // visible | partial | blocked
+    visiblePercent: round2(visiblePercent),
+    visibleHeight_m: round2(visibleHeight),
+    blockedAt,                       // stärkster Verdeckungspunkt oder null
+    observer: {
+      lat: obs.lat, lon: obs.lon,
+      groundElevation_m: round2(groundObs),
+      height_m: obs.h,
+      eyeElevation_m: round2(eyeElevation),
+    },
+    target: {
+      lat: tgt.lat, lon: tgt.lon,
+      groundElevation_m: round2(groundTgt),
+      height_m: tgt.h,
+      topElevation_m: round2(targetTop),
+    },
+    distance_m: round2(distance),
+    samples,
+    source: 'DGM Brandenburg (ALS)',
+  });
+}
+
+/**
+ * Baut ein Höhenprofil zwischen zwei Punkten (linear in lat/lon interpoliert,
+ * Distanz geodätisch). Liefert { profile[], distance } mit distance in Metern.
+ */
+async function buildProfile(from, to, samples, env) {
+  const distance = haversine(from.lat, from.lon, to.lat, to.lon);
+  const cache = new Map();
+  const profile = [];
+
+  for (let i = 0; i < samples; i++) {
+    const t = samples === 1 ? 0 : i / (samples - 1);
+    const lat = from.lat + (to.lat - from.lat) * t;
+    const lon = from.lon + (to.lon - from.lon) * t;
+    const { x, y } = wgs84ToUtm33(lat, lon);
+    const elevation = await bilinearElevation(x, y, env, cache);
+    profile.push({ lat, lon, distance_m: distance * t, elevation });
+  }
+
+  return { profile, distance };
 }
 
 /**
@@ -211,6 +353,49 @@ function wgs84ToUtm33(lat, lon) {
 }
 
 // ---- Helpers ----
+
+/** Parst "lat,lon" → {lat, lon}; wirft 400 bei ungültiger Eingabe. */
+function parseLatLon(value, name) {
+  if (!value) throw apiError(`Query param "${name}" required as "lat,lon"`, 400, 'BAD_REQUEST');
+  const parts = value.split(',').map((s) => parseFloat(s.trim()));
+  if (parts.length < 2 || !isFinite(parts[0]) || !isFinite(parts[1])) {
+    throw apiError(`Invalid "${name}": expected "lat,lon" (decimal degrees, WGS84)`, 400, 'BAD_REQUEST');
+  }
+  return { lat: parts[0], lon: parts[1] };
+}
+
+/** Parst "lat,lon[,h]" → {lat, lon, h}; h optional mit Default. */
+function parseCoordWithHeight(value, name, defaultHeight) {
+  if (!value) throw apiError(`Query param "${name}" required as "lat,lon[,height]"`, 400, 'BAD_REQUEST');
+  const parts = value.split(',').map((s) => parseFloat(s.trim()));
+  if (parts.length < 2 || !isFinite(parts[0]) || !isFinite(parts[1])) {
+    throw apiError(`Invalid "${name}": expected "lat,lon[,height]" (decimal degrees, WGS84)`, 400, 'BAD_REQUEST');
+  }
+  const h = parts.length >= 3 && isFinite(parts[2]) ? parts[2] : defaultHeight;
+  return { lat: parts[0], lon: parts[1], h };
+}
+
+/** Parst & begrenzt den samples-Parameter. */
+function parseSamples(value) {
+  if (value === null || value === '') return DEFAULT_SAMPLES;
+  const n = parseInt(value, 10);
+  if (!isFinite(n) || n < 2) throw apiError('Invalid "samples": integer >= 2 required', 400, 'BAD_REQUEST');
+  return Math.min(n, MAX_SAMPLES);
+}
+
+/** Geodätische Distanz (Haversine) in Metern. */
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // m
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+const round2 = (v) => Math.round(v * 100) / 100;
+const round6 = (v) => Math.round(v * 1e6) / 1e6;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {

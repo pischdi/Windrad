@@ -1,6 +1,9 @@
 # MVP: Höhendaten-Dienst (Elevation Service)
 
-**Stand:** 2026-06-25 · **Status:** Plan / in Umsetzung
+**Stand:** 2026-06-25 · **Status:** Schritte 1–3 live → https://elevation-api.pischdi.workers.dev
+
+> Umgesetzt: `/v1/point`, `/v1/profile`, `/v1/line-of-sight`, `/v1/health`.
+> Offen: API-Keys/Rate-Limit (Schritt 4), OpenAPI + Doku-Seite (Schritt 5).
 
 Aufbauend auf der bestehenden Brandenburg-ALS-Pipeline (LAZ → Uint16-Höhengrids, 1m,
 auf Cloudflare R2) und der vorhandenen Sichtbarkeitslogik
@@ -90,14 +93,13 @@ Client → Cloudflare Worker (elevation-api)
 
 ## 5. Umsetzungsschritte & Aufwand
 
-| # | Baustein | Aufwand |
-|---|----------|---------|
-| 1 | Worker-Gerüst + Routing + R2-Tile-Loader + Punkt-Interpolation (`/v1/point`) | ~1–2 Tage |
-| 2 | Profil-Endpunkt (`/v1/profile`) | ~1 Tag |
-| 3 | Line-of-Sight (`/v1/line-of-sight`) — Portierung aus `visibility-calculator.js` | ~2 Tage |
-| 4 | API-Keys + Rate-Limit (KV) | ~1 Tag |
-| 5 | OpenAPI-Spec + Doku-Seite | ~1 Tag |
-| | **Summe MVP** | **~1 Woche** |
+| # | Baustein | Status |
+|---|----------|--------|
+| 1 | Worker-Gerüst + Routing + R2-Tile-Loader + Punkt-Interpolation (`/v1/point`) | ✅ live |
+| 2 | Profil-Endpunkt (`/v1/profile`) | ✅ live |
+| 3 | Line-of-Sight (`/v1/line-of-sight`) — Portierung aus `visibility-calculator.js` | ✅ live |
+| 4 | API-Keys + Rate-Limit (KV) | offen |
+| 5 | OpenAPI-Spec + Doku-Seite | offen |
 
 ---
 
