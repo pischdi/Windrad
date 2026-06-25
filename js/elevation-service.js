@@ -203,29 +203,49 @@ class ElevationService {
 
     /**
      * Convert WGS84 to UTM33N (EPSG:25833)
-     * Simplified conversion for Brandenburg region
+     *
+     * Vollständige Transverse-Mercator-Vorwärtsformel (Snyder) inkl.
+     * Meridianbogen M. Die frühere Näherung (y = k0·N·latRad) ließ M weg
+     * und lieferte einen um ~37 km falschen Northing → die App lud die
+     * falsche Kachel und fiel auf OpenElevation zurück. Verifiziert gegen
+     * alle vier bekannten Windrad-Kacheln (siehe elevation-api/).
      */
     _convertToUTM(lat, lng) {
-        // This is a simplified conversion
-        // For production, use proj4js or similar library
-        
-        const a = 6378137.0; // WGS84 semi-major axis
-        const k0 = 0.9996;   // scale factor
-        const e = 0.081819190842622; // eccentricity
-        
-        const latRad = lat * Math.PI / 180;
-        const lngRad = lng * Math.PI / 180;
-        const lngOrigin = 15 * Math.PI / 180; // Zone 33N center
-        
-        const N = a / Math.sqrt(1 - e * e * Math.sin(latRad) * Math.sin(latRad));
-        const T = Math.tan(latRad) * Math.tan(latRad);
-        const C = e * e * Math.cos(latRad) * Math.cos(latRad) / (1 - e * e);
-        const A = (lngRad - lngOrigin) * Math.cos(latRad);
-        
-        const x = k0 * N * (A + (1 - T + C) * A * A * A / 6);
-        const y = k0 * N * latRad;
-        
-        return { x: 500000 + x, y: y };
+        const a = 6378137.0;                 // WGS84 große Halbachse
+        const f = 1 / 298.257223563;         // Abplattung
+        const e2 = f * (2 - f);              // erste Exzentrizität²
+        const k0 = 0.9996;                   // Maßstabsfaktor
+        const lon0 = 15 * Math.PI / 180;     // Mittelmeridian Zone 33N
+
+        const phi = lat * Math.PI / 180;
+        const lam = lng * Math.PI / 180;
+        const ep2 = e2 / (1 - e2);
+
+        const N = a / Math.sqrt(1 - e2 * Math.sin(phi) ** 2);
+        const T = Math.tan(phi) ** 2;
+        const C = ep2 * Math.cos(phi) ** 2;
+        const A = (lam - lon0) * Math.cos(phi);
+
+        const M = a * (
+            (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 ** 3 / 256) * phi
+            - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * phi)
+            + (15 * e2 * e2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * phi)
+            - (35 * e2 ** 3 / 3072) * Math.sin(6 * phi)
+        );
+
+        const x = k0 * N * (
+            A + (1 - T + C) * A ** 3 / 6
+            + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * A ** 5 / 120
+        ) + 500000;
+
+        const y = k0 * (
+            M + N * Math.tan(phi) * (
+                A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24
+                + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6 / 720
+            )
+        );
+
+        return { x: x, y: y };
     }
 
     /**
