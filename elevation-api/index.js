@@ -47,6 +47,16 @@ export default {
         return json({ status: 'ok', service: 'elevation-api', version: 'mvp-1' });
       }
 
+      // Öffentliche Doku (ohne Auth/Rate-Limit).
+      if (url.pathname === '/openapi.json') {
+        return json(buildOpenApi(url.origin));
+      }
+      if (url.pathname === '/' || url.pathname === '/docs') {
+        return new Response(DOCS_HTML, {
+          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+
       // Auth + Rate-Limit für alle Datenendpunkte.
       const gate = await authAndRateLimit(request, env);
       if (gate) return gate; // 401 / 429
@@ -405,6 +415,147 @@ function wgs84ToUtm33(lat, lon) {
 
   return { x, y };
 }
+
+// ---- OpenAPI + Docs ----
+
+/** Baut die OpenAPI-3.1-Spezifikation (server-URL dynamisch aus dem Request). */
+function buildOpenApi(origin) {
+  const apiKeyHeader = { name: 'X-API-Key', in: 'header', required: false, schema: { type: 'string' },
+    description: 'Optionaler API-Key. Ohne Key: 30 Anfragen/60s pro IP. Mit gültigem Key: 600/60s.' };
+  const errorSchema = { type: 'object', properties: { error: { type: 'string' }, code: { type: 'string' } } };
+  const errorResponses = {
+    400: { description: 'Ungültige Parameter', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+    401: { description: 'Ungültiger API-Key', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+    404: { description: 'Außerhalb der Datenabdeckung', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+    429: { description: 'Rate-Limit überschritten', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+  };
+
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'Elevation API',
+      version: '1.0.0-mvp',
+      description:
+        'Höhendaten-Dienst auf Basis des Brandenburg-DOM (Airborne Laser Scanning, '
+        + '1 m Auflösung, EPSG:25833). Punkt-Höhe, Höhenprofil und Sichtbarkeit/Line-of-Sight. '
+        + 'Aktuelle Abdeckung: Region Neuhausen/Spree (Brandenburg).',
+    },
+    servers: [{ url: origin }],
+    security: [{ ApiKeyAuth: [] }, {}],
+    paths: {
+      '/v1/point': {
+        get: {
+          summary: 'Höhe an einem Punkt',
+          description: 'Bilinear interpolierte Geländehöhe (DOM, inkl. Vegetation/Gebäude) an einer Koordinate.',
+          parameters: [
+            { name: 'lat', in: 'query', required: true, schema: { type: 'number' }, example: 51.6546, description: 'Breitengrad (WGS84)' },
+            { name: 'lon', in: 'query', required: true, schema: { type: 'number' }, example: 14.4178, description: 'Längengrad (WGS84)' },
+            apiKeyHeader,
+          ],
+          responses: {
+            200: { description: 'Höhe', content: { 'application/json': { schema: { $ref: '#/components/schemas/Point' } } } },
+            ...errorResponses,
+          },
+        },
+      },
+      '/v1/profile': {
+        get: {
+          summary: 'Höhenprofil entlang einer Linie',
+          parameters: [
+            { name: 'from', in: 'query', required: true, schema: { type: 'string' }, example: '51.6546,14.4178', description: '"lat,lon" Start (WGS84)' },
+            { name: 'to', in: 'query', required: true, schema: { type: 'string' }, example: '51.6711,14.4319', description: '"lat,lon" Ende (WGS84)' },
+            { name: 'samples', in: 'query', required: false, schema: { type: 'integer', minimum: 2, maximum: 1000, default: 200 }, description: 'Anzahl Stützpunkte' },
+            apiKeyHeader,
+          ],
+          responses: {
+            200: { description: 'Profil', content: { 'application/json': { schema: { $ref: '#/components/schemas/Profile' } } } },
+            ...errorResponses,
+          },
+        },
+      },
+      '/v1/line-of-sight': {
+        get: {
+          summary: 'Sichtbarkeit / Line-of-Sight',
+          description:
+            'Prüft, ob ein Ziel (z.B. Windrad-Oberkante) vom Beobachter aus über das Gelände sichtbar ist, '
+            + 'und liefert den sichtbaren Anteil. Höhen jeweils als 3. Wert "lat,lon,höhe" (m über Grund).',
+          parameters: [
+            { name: 'observer', in: 'query', required: true, schema: { type: 'string' }, example: '51.6546,14.4178,1.7', description: '"lat,lon[,höhe]" Beobachter (Default Augenhöhe 1.7 m)' },
+            { name: 'target', in: 'query', required: true, schema: { type: 'string' }, example: '51.7639,14.4932,250', description: '"lat,lon[,höhe]" Ziel (Default Höhe 0 m)' },
+            { name: 'samples', in: 'query', required: false, schema: { type: 'integer', minimum: 2, maximum: 1000, default: 200 } },
+            apiKeyHeader,
+          ],
+          responses: {
+            200: { description: 'Sichtbarkeit', content: { 'application/json': { schema: { $ref: '#/components/schemas/LineOfSight' } } } },
+            ...errorResponses,
+          },
+        },
+      },
+      '/v1/health': {
+        get: { summary: 'Liveness-Check', security: [{}], responses: { 200: { description: 'OK' } } },
+      },
+    },
+    components: {
+      securitySchemes: { ApiKeyAuth: { type: 'apiKey', in: 'header', name: 'X-API-Key' } },
+      schemas: {
+        Error: errorSchema,
+        Point: {
+          type: 'object',
+          properties: {
+            lat: { type: 'number' }, lon: { type: 'number' },
+            elevation: { type: 'number', description: 'Höhe in Metern' },
+            unit: { type: 'string', example: 'm' },
+            source: { type: 'string' }, resolution_m: { type: 'number', example: 1 },
+          },
+        },
+        Profile: {
+          type: 'object',
+          properties: {
+            from: { type: 'object' }, to: { type: 'object' },
+            distance_m: { type: 'number' }, samples: { type: 'integer' },
+            unit: { type: 'string' }, source: { type: 'string' },
+            profile: {
+              type: 'array',
+              items: { type: 'object', properties: {
+                lat: { type: 'number' }, lon: { type: 'number' },
+                distance_m: { type: 'number' }, elevation: { type: ['number', 'null'] },
+              } },
+            },
+          },
+        },
+        LineOfSight: {
+          type: 'object',
+          properties: {
+            visible: { type: 'boolean', description: 'Zielspitze ungehindert sichtbar' },
+            status: { type: 'string', enum: ['visible', 'partial', 'blocked'] },
+            visiblePercent: { type: 'number' },
+            visibleHeight_m: { type: 'number' },
+            blockedAt: { type: ['object', 'null'], properties: {
+              lat: { type: 'number' }, lon: { type: 'number' },
+              elevation: { type: 'number' }, distance_m: { type: 'number' } } },
+            observer: { type: 'object' }, target: { type: 'object' },
+            distance_m: { type: 'number' }, samples: { type: 'integer' }, source: { type: 'string' },
+          },
+        },
+      },
+    },
+  };
+}
+
+/** Doku-Seite (Redoc, lädt /openapi.json). */
+const DOCS_HTML = `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Elevation API — Doku</title>
+  <style>body { margin: 0; }</style>
+</head>
+<body>
+  <redoc spec-url="/openapi.json"></redoc>
+  <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+</body>
+</html>`;
 
 // ---- Helpers ----
 

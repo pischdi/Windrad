@@ -1,9 +1,10 @@
 # MVP: Höhendaten-Dienst (Elevation Service)
 
-**Stand:** 2026-06-25 · **Status:** Schritte 1–3 live → https://elevation-api.pischdi.workers.dev
+**Stand:** 2026-06-25 · **Status:** MVP komplett (Schritte 1–5 live) → https://elevation-api.pischdi.workers.dev
 
 > Umgesetzt: `/v1/point`, `/v1/profile`, `/v1/line-of-sight`, `/v1/health`,
-> API-Keys + Rate-Limit (Schritt 4). Offen: OpenAPI + Doku-Seite (Schritt 5).
+> API-Keys + Rate-Limit (Schritt 4), OpenAPI + Doku-Seite (Schritt 5).
+> Doku: https://elevation-api.pischdi.workers.dev/docs · Spec: `/openapi.json`
 
 ### Auth & Rate-Limit (Schritt 4)
 
@@ -140,7 +141,7 @@ Client → Cloudflare Worker (elevation-api)
 | 2 | Profil-Endpunkt (`/v1/profile`) | ✅ live |
 | 3 | Line-of-Sight (`/v1/line-of-sight`) — Portierung aus `visibility-calculator.js` | ✅ live |
 | 4 | API-Keys (KV) + Rate-Limit (ratelimit-Binding) | ✅ live |
-| 5 | OpenAPI-Spec + Doku-Seite | offen |
+| 5 | OpenAPI-Spec + Doku-Seite (`/openapi.json`, `/docs` via Redoc) | ✅ live |
 
 ---
 
