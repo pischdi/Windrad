@@ -19,6 +19,7 @@
  * konfiguriert, fällt der Worker auf die öffentliche R2-URL zurück.
  */
 
+const VERSION = '1.0.0-mvp';
 const TILE_SIZE = 1000;          // Meter pro Kachelkante = Gridzellen pro Kante
 const PUBLIC_R2 = 'https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev';
 const DEFAULT_SAMPLES = 200;     // Stützpunkte für Profil/LoS (wie Frontend-CONFIG)
@@ -44,7 +45,7 @@ export default {
     try {
       // Health-Check: ohne Auth/Rate-Limit.
       if (url.pathname === '/v1/health') {
-        return json({ status: 'ok', service: 'elevation-api', version: 'mvp-1' });
+        return json({ status: 'ok', service: 'elevation-api', version: VERSION });
       }
 
       // Öffentliche Doku (ohne Auth/Rate-Limit).
@@ -139,6 +140,7 @@ async function handlePoint(url, env) {
   if (!isFinite(lat) || !isFinite(lon)) {
     throw apiError('Query params "lat" and "lon" required (decimal degrees, WGS84)', 400, 'BAD_REQUEST');
   }
+  checkLatLon(lat, lon, 'lat/lon');
 
   const { x, y } = wgs84ToUtm33(lat, lon);
   const cache = new Map();
@@ -296,10 +298,12 @@ async function bilinearElevation(x, y, env, cache) {
   const x0 = Math.floor(x), y0 = Math.floor(y);
   const fx = x - x0, fy = y - y0;
 
-  const h00 = await cellElevation(x0,     y0,     env, cache);
-  const h10 = await cellElevation(x0 + 1, y0,     env, cache);
-  const h01 = await cellElevation(x0,     y0 + 1, env, cache);
-  const h11 = await cellElevation(x0 + 1, y0 + 1, env, cache);
+  const [h00, h10, h01, h11] = await Promise.all([
+    cellElevation(x0,     y0,     env, cache),
+    cellElevation(x0 + 1, y0,     env, cache),
+    cellElevation(x0,     y0 + 1, env, cache),
+    cellElevation(x0 + 1, y0 + 1, env, cache),
+  ]);
 
   const corners = [h00, h10, h01, h11].filter((h) => h !== null);
   if (corners.length === 0) return null;
@@ -337,37 +341,40 @@ async function cellElevation(x, y, env, cache) {
 /**
  * Lädt eine Kachel als Uint16Array (mit Request-lokalem Cache).
  * Liefert null, wenn die Kachel nicht existiert (außerhalb der Abdeckung).
+ *
+ * Der Cache hält das Promise (nicht erst den aufgelösten Wert), damit
+ * gleichzeitige Lookups derselben Kachel (z.B. die 4 bilinearen Ecken)
+ * nur einen einzigen Fetch/R2-Get auslösen.
  */
-async function loadTile(tileX, tileY, env, cache) {
+function loadTile(tileX, tileY, env, cache) {
   const key = `tile_${tileX}_${tileY}.bin`;
   if (cache.has(key)) return cache.get(key);
 
-  let buffer = null;
+  const promise = (async () => {
+    let buffer = null;
 
-  // 1) Bevorzugt: R2-Binding
-  if (env && env.TILES) {
-    const obj = await env.TILES.get(key);
-    if (obj) buffer = await obj.arrayBuffer();
-  }
+    // 1) Bevorzugt: R2-Binding
+    if (env && env.TILES) {
+      const obj = await env.TILES.get(key);
+      if (obj) buffer = await obj.arrayBuffer();
+    }
 
-  // 2) Fallback: öffentliche R2-URL
-  if (!buffer) {
-    const resp = await fetch(`${PUBLIC_R2}/${key}`);
-    if (resp.ok) buffer = await resp.arrayBuffer();
-  }
+    // 2) Fallback: öffentliche R2-URL
+    if (!buffer) {
+      const resp = await fetch(`${PUBLIC_R2}/${key}`);
+      if (resp.ok) buffer = await resp.arrayBuffer();
+    }
 
-  if (!buffer) {
-    cache.set(key, null);
-    return null;
-  }
+    if (!buffer) return null;
 
-  if (buffer.byteLength !== TILE_SIZE * TILE_SIZE * 2) {
-    throw apiError(`Invalid tile size for ${key}: ${buffer.byteLength} bytes`, 500, 'BAD_TILE');
-  }
+    if (buffer.byteLength !== TILE_SIZE * TILE_SIZE * 2) {
+      throw apiError(`Invalid tile size for ${key}: ${buffer.byteLength} bytes`, 500, 'BAD_TILE');
+    }
+    return new Uint16Array(buffer);
+  })();
 
-  const arr = new Uint16Array(buffer);
-  cache.set(key, arr);
-  return arr;
+  cache.set(key, promise);
+  return promise;
 }
 
 /**
@@ -566,6 +573,7 @@ function parseLatLon(value, name) {
   if (parts.length < 2 || !isFinite(parts[0]) || !isFinite(parts[1])) {
     throw apiError(`Invalid "${name}": expected "lat,lon" (decimal degrees, WGS84)`, 400, 'BAD_REQUEST');
   }
+  checkLatLon(parts[0], parts[1], name);
   return { lat: parts[0], lon: parts[1] };
 }
 
@@ -576,8 +584,16 @@ function parseCoordWithHeight(value, name, defaultHeight) {
   if (parts.length < 2 || !isFinite(parts[0]) || !isFinite(parts[1])) {
     throw apiError(`Invalid "${name}": expected "lat,lon[,height]" (decimal degrees, WGS84)`, 400, 'BAD_REQUEST');
   }
+  checkLatLon(parts[0], parts[1], name);
   const h = parts.length >= 3 && isFinite(parts[2]) ? parts[2] : defaultHeight;
   return { lat: parts[0], lon: parts[1], h };
+}
+
+/** Prüft den gültigen geographischen Wertebereich; wirft 400 bei Verstoß. */
+function checkLatLon(lat, lon, name) {
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    throw apiError(`Invalid "${name}": lat must be -90..90, lon -180..180`, 400, 'BAD_REQUEST');
+  }
 }
 
 /** Parst & begrenzt den samples-Parameter. */
