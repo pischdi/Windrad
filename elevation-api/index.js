@@ -613,9 +613,9 @@ const DEMO_HTML = `<!doctype html>
     <p id="hint">Klicke auf die Karte, um die Höhe an einem Punkt abzufragen.</p>
     <fieldset>
       <legend>Parameter</legend>
-      <label>Beobachter-Höhe (m über Grund)</label>
+      <label>Punkt A (Beobachter) — Höhe (m über Grund)</label>
       <input id="obsH" type="number" value="1.7" step="0.1"/>
-      <label>Ziel-Höhe (m, z.B. Windrad)</label>
+      <label>Punkt B (Ziel) — Höhe (m, z.B. Windrad)</label>
       <input id="tgtH" type="number" value="250" step="1"/>
       <label>API-Key (optional)</label>
       <input id="apiKey" type="text" placeholder="leer = anonym (30/min)"/>
@@ -623,7 +623,11 @@ const DEMO_HTML = `<!doctype html>
     <fieldset>
       <legend>Ergebnis</legend>
       <div id="result">—</div>
-      <canvas id="profile" width="320" height="150"></canvas>
+    </fieldset>
+    <fieldset>
+      <legend>Geländeschnitt A → B</legend>
+      <canvas id="profile" width="320" height="180"></canvas>
+      <p id="hint" style="margin:4px 0 0">Höhen oben editierbar — der Schnitt aktualisiert sich live.</p>
     </fieldset>
     <button class="reset" id="reset">Zurücksetzen</button>
   </div>
@@ -636,7 +640,9 @@ L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
 
 let mode = 'point';
 let observer = null, target = null;
-let layers = [];
+let layers = [];          // Punkt-Modus-Marker
+let baseMarkers = [];     // A/B-Marker (LoS)
+let losLayers = [];       // Sichtlinie + Verdeckungspunkt (bei Neuberechnung ersetzt)
 const $ = (id) => document.getElementById(id);
 const hints = {
   point: 'Klicke auf die Karte, um die Höhe an einem Punkt abzufragen.',
@@ -649,7 +655,8 @@ function setMode(m){ mode=m; observer=null; target=null; clear();
 $('mPoint').onclick=()=>setMode('point');
 $('mLos').onclick=()=>setMode('los');
 $('reset').onclick=()=>{ observer=null; target=null; clear(); $('result').textContent='—'; };
-function clear(){ layers.forEach(l=>map.removeLayer(l)); layers=[];
+function clear(){ [layers,baseMarkers,losLayers].forEach(g=>g.forEach(l=>map.removeLayer(l)));
+  layers=[]; baseMarkers=[]; losLayers=[];
   const c=$('profile').getContext('2d'); c.clearRect(0,0,1000,1000); }
 function headers(){ const k=$('apiKey').value.trim(); return k?{'X-API-Key':k}:{}; }
 function colorFor(s){ return s==='visible'?'#2e9e5b':s==='partial'?'#e08e00':'#d23b3b'; }
@@ -667,58 +674,77 @@ map.on('click', async (e)=>{
     }catch(err){ $('result').textContent='Netzwerkfehler'; }
     return;
   }
-  // LoS-Modus
-  if(!observer){ observer=[lat,lng]; clear();
-    layers.push(L.marker(observer).addTo(map).bindTooltip('Beobachter',{permanent:true}));
-    $('result').textContent='Beobachter gesetzt. Jetzt Ziel klicken.'; return; }
+  // LoS-Modus: A → B; nach vollständigem Paar startet der nächste Klick neu.
+  if(!observer || (observer && target)){
+    observer=[lat,lng]; target=null; clear();
+    baseMarkers.push(L.marker(observer).addTo(map).bindTooltip('A',{permanent:true}));
+    $('result').textContent='Punkt A gesetzt. Jetzt Punkt B klicken.'; return;
+  }
   if(!target){ target=[lat,lng];
-    layers.push(L.marker(target).addTo(map).bindTooltip('Ziel',{permanent:true}));
-    await runLos(); observer=null; target=null; return; }
+    baseMarkers.push(L.marker(target).addTo(map).bindTooltip('B',{permanent:true}));
+    await runLos(); return; }
 });
 
+// Höhen live: bei Änderung neu berechnen, wenn A und B gesetzt sind.
+$('obsH').oninput = ()=>{ if(observer&&target) runLos(); };
+$('tgtH').oninput = ()=>{ if(observer&&target) runLos(); };
+
 async function runLos(){
-  const oH=$('obsH').value||1.7, tH=$('tgtH').value||0;
+  const oH=$('obsH').value||0, tH=$('tgtH').value||0;
   const o=observer[0]+','+observer[1]+','+oH, t=target[0]+','+target[1]+','+tH;
   try{
     const r = await fetch('/v1/line-of-sight?observer='+o+'&target='+t+'&samples=200',{headers:headers()});
     const d = await r.json();
     if(!r.ok){ $('result').innerHTML='<b>Fehler:</b> '+(d.error||r.status); return; }
+    losLayers.forEach(l=>map.removeLayer(l)); losLayers=[];
     const col=colorFor(d.status);
-    layers.push(L.polyline([observer,target],{color:col,weight:4}).addTo(map));
-    if(d.blockedAt){ layers.push(L.circleMarker([d.blockedAt.lat,d.blockedAt.lon],
+    losLayers.push(L.polyline([observer,target],{color:col,weight:4}).addTo(map));
+    if(d.blockedAt){ losLayers.push(L.circleMarker([d.blockedAt.lat,d.blockedAt.lon],
       {radius:6,color:'#d23b3b',fillColor:'#d23b3b',fillOpacity:1}).addTo(map).bindTooltip('Verdeckung')); }
     $('result').innerHTML='<span class="badge '+d.status+'">'+d.status.toUpperCase()+'</span> '
       +'<b>'+d.visiblePercent+'%</b> sichtbar<br>'
       +'sichtbare Höhe: '+d.visibleHeight_m+' m / '+d.target.height_m+' m<br>'
       +'Distanz: '+(d.distance_m/1000).toFixed(2)+' km'
       +(d.blockedAt?'<br>Verdeckung bei '+Math.round(d.blockedAt.distance_m)+' m':'');
-    drawProfile(o,t,d);
+    drawProfile(d);
   }catch(err){ $('result').textContent='Netzwerkfehler'; }
 }
 
-async function drawProfile(o,t,los){
+// Geländeschnitt (Seitenansicht A → B) mit Masten an A/B und Sichtlinie.
+async function drawProfile(los){
   const r=await fetch('/v1/profile?from='+observer.join(',')+'&to='+target.join(',')+'&samples=200',{headers:headers()});
   const d=await r.json(); if(!r.ok) return;
-  const cv=$('profile'), ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,pad=22;
+  const cv=$('profile'), ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,pad=24,n=d.profile.length;
   ctx.clearRect(0,0,W,H);
   const els=d.profile.map(p=>p.elevation).filter(v=>v!=null);
-  const top=los.target.topElevation_m, eye=los.observer.eyeElevation_m;
+  const gA=los.observer.groundElevation_m, gB=los.target.groundElevation_m;
+  const eye=los.observer.eyeElevation_m, top=los.target.topElevation_m;
   const min=Math.min(...els), max=Math.max(top,...els), rng=(max-min)||1;
-  const sx=i=>pad+i/(d.profile.length-1)*(W-2*pad);
+  const sx=i=>pad+i/(n-1)*(W-2*pad);
   const sy=v=>H-pad-(v-min)/rng*(H-2*pad);
-  // Gelände
-  ctx.beginPath(); ctx.moveTo(sx(0),sy(d.profile[0].elevation||min));
-  d.profile.forEach((p,i)=>ctx.lineTo(sx(i),sy(p.elevation==null?min:p.elevation)));
-  ctx.lineTo(sx(d.profile.length-1),H-pad); ctx.lineTo(sx(0),H-pad); ctx.closePath();
+  const valAt=i=>d.profile[i].elevation==null?min:d.profile[i].elevation;
+  // Gelände (Fläche + Linie)
+  ctx.beginPath(); ctx.moveTo(sx(0),sy(valAt(0)));
+  for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(valAt(i)));
+  ctx.lineTo(sx(n-1),H-pad); ctx.lineTo(sx(0),H-pad); ctx.closePath();
   ctx.fillStyle='rgba(121,85,72,.25)'; ctx.fill();
-  ctx.strokeStyle='#795548'; ctx.beginPath(); ctx.moveTo(sx(0),sy(d.profile[0].elevation||min));
-  d.profile.forEach((p,i)=>ctx.lineTo(sx(i),sy(p.elevation==null?min:p.elevation))); ctx.stroke();
-  // Sichtlinie
-  ctx.strokeStyle=colorFor(los.status); ctx.setLineDash([5,4]); ctx.beginPath();
-  ctx.moveTo(sx(0),sy(eye)); ctx.lineTo(sx(d.profile.length-1),sy(top)); ctx.stroke(); ctx.setLineDash([]);
-  // Achsen-Labels
-  ctx.fillStyle='#666'; ctx.font='10px sans-serif';
-  ctx.fillText(Math.round(max)+'m',2,12); ctx.fillText(Math.round(min)+'m',2,H-pad+10);
+  ctx.strokeStyle='#795548'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(sx(0),sy(valAt(0)));
+  for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(valAt(i))); ctx.stroke();
+  // Mast A (Beobachter) und Mast B (Ziel)
+  ctx.lineWidth=3;
+  ctx.strokeStyle='#2563eb'; ctx.beginPath(); ctx.moveTo(sx(0),sy(gA)); ctx.lineTo(sx(0),sy(eye)); ctx.stroke();
+  ctx.strokeStyle='#0b8f6a'; ctx.beginPath(); ctx.moveTo(sx(n-1),sy(gB)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke();
+  // Sichtlinie A-Auge → B-Spitze
+  ctx.strokeStyle=colorFor(los.status); ctx.lineWidth=1.5; ctx.setLineDash([5,4]); ctx.beginPath();
+  ctx.moveTo(sx(0),sy(eye)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke(); ctx.setLineDash([]);
+  // Verdeckungspunkt
+  if(los.blockedAt){ const bi=Math.round(los.blockedAt.distance_m/los.distance_m*(n-1));
+    ctx.fillStyle='#d23b3b'; ctx.beginPath(); ctx.arc(sx(bi),sy(los.blockedAt.elevation),4,0,7); ctx.fill(); }
+  // Labels
+  ctx.fillStyle='#666'; ctx.font='10px sans-serif'; ctx.textAlign='left';
+  ctx.fillText(Math.round(max)+'m',2,12); ctx.fillText(Math.round(min)+'m',2,H-pad+11);
+  ctx.fillStyle='#2563eb'; ctx.fillText('A '+Math.round(eye)+'m',sx(0),H-6);
+  ctx.fillStyle='#0b8f6a'; ctx.textAlign='right'; ctx.fillText(Math.round(top)+'m B',sx(n-1),H-6); ctx.textAlign='left';
 }
 </script>
 </body>
