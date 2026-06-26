@@ -5,6 +5,7 @@
 > Umgesetzt: `/v1/point`, `/v1/profile`, `/v1/line-of-sight`, `/v1/health`,
 > API-Keys + Rate-Limit (Schritt 4), OpenAPI + Doku-Seite (Schritt 5).
 > Doku: https://elevation-api.pischdi.workers.dev/docs · Spec: `/openapi.json`
+> Interaktive Demo (Karte, Punkt + Line-of-Sight): https://elevation-api.pischdi.workers.dev/demo
 
 ### Auth & Rate-Limit (Schritt 4)
 

@@ -57,6 +57,11 @@ export default {
           headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
         });
       }
+      if (url.pathname === '/demo') {
+        return new Response(DEMO_HTML, {
+          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
 
       // Auth + Rate-Limit für alle Datenendpunkte.
       const gate = await authAndRateLimit(request, env);
@@ -561,6 +566,161 @@ const DOCS_HTML = `<!doctype html>
 <body>
   <redoc spec-url="/openapi.json"></redoc>
   <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+</body>
+</html>`;
+
+/** Interaktive Test-/Demo-Seite (Leaflet): Punkt-Höhe & Line-of-Sight per Klick. */
+const DEMO_HTML = `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Elevation API — Demo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; color: #1a2433; }
+  header { padding: 10px 16px; background: #0b3b44; color: #fff; }
+  header h1 { font-size: 16px; margin: 0; }
+  header a { color: #9fe4d0; font-size: 13px; }
+  #wrap { display: flex; height: calc(100vh - 44px); }
+  #map { flex: 1; }
+  #side { width: 340px; padding: 14px; overflow-y: auto; border-left: 1px solid #ddd; }
+  fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0 0 12px; padding: 8px 10px; }
+  legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+  label { font-size: 13px; display: block; margin: 6px 0 2px; }
+  input { width: 100%; padding: 5px; font-size: 13px; }
+  .mode { display: flex; gap: 6px; margin-bottom: 8px; }
+  .mode button { flex: 1; padding: 8px; border: 1px solid #0b3b44; background: #fff; color: #0b3b44; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .mode button.active { background: #0b3b44; color: #fff; }
+  #result { font-size: 13px; line-height: 1.5; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; color: #fff; font-weight: 600; }
+  .visible { background: #2e9e5b; } .partial { background: #e08e00; } .blocked { background: #d23b3b; }
+  #hint { font-size: 12px; color: #666; }
+  canvas { width: 100%; height: 150px; border: 1px solid #eee; margin-top: 8px; }
+  button.reset { width: 100%; padding: 7px; margin-top: 6px; cursor: pointer; }
+</style>
+</head>
+<body>
+<header><h1>Elevation API — Demo &nbsp;·&nbsp; <a href="/docs">API-Doku</a></h1></header>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="side">
+    <div class="mode">
+      <button id="mPoint" class="active">Höhe (Punkt)</button>
+      <button id="mLos">Sichtlinie</button>
+    </div>
+    <p id="hint">Klicke auf die Karte, um die Höhe an einem Punkt abzufragen.</p>
+    <fieldset>
+      <legend>Parameter</legend>
+      <label>Beobachter-Höhe (m über Grund)</label>
+      <input id="obsH" type="number" value="1.7" step="0.1"/>
+      <label>Ziel-Höhe (m, z.B. Windrad)</label>
+      <input id="tgtH" type="number" value="250" step="1"/>
+      <label>API-Key (optional)</label>
+      <input id="apiKey" type="text" placeholder="leer = anonym (30/min)"/>
+    </fieldset>
+    <fieldset>
+      <legend>Ergebnis</legend>
+      <div id="result">—</div>
+      <canvas id="profile" width="320" height="150"></canvas>
+    </fieldset>
+    <button class="reset" id="reset">Zurücksetzen</button>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([51.6724, 14.4354], 12);
+L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+  { attribution: '© OpenStreetMap, © OpenTopoMap', maxZoom: 17 }).addTo(map);
+
+let mode = 'point';
+let observer = null, target = null;
+let layers = [];
+const $ = (id) => document.getElementById(id);
+const hints = {
+  point: 'Klicke auf die Karte, um die Höhe an einem Punkt abzufragen.',
+  los: 'Klick 1 = Beobachter, Klick 2 = Ziel. Dann wird die Sichtbarkeit berechnet.'
+};
+function setMode(m){ mode=m; observer=null; target=null; clear();
+  $('mPoint').classList.toggle('active', m==='point');
+  $('mLos').classList.toggle('active', m==='los');
+  $('hint').textContent = hints[m]; $('result').textContent='—'; }
+$('mPoint').onclick=()=>setMode('point');
+$('mLos').onclick=()=>setMode('los');
+$('reset').onclick=()=>{ observer=null; target=null; clear(); $('result').textContent='—'; };
+function clear(){ layers.forEach(l=>map.removeLayer(l)); layers=[];
+  const c=$('profile').getContext('2d'); c.clearRect(0,0,1000,1000); }
+function headers(){ const k=$('apiKey').value.trim(); return k?{'X-API-Key':k}:{}; }
+function colorFor(s){ return s==='visible'?'#2e9e5b':s==='partial'?'#e08e00':'#d23b3b'; }
+
+map.on('click', async (e)=>{
+  const {lat, lng} = e.latlng;
+  if (mode==='point'){
+    try{
+      const r = await fetch('/v1/point?lat='+lat+'&lon='+lng,{headers:headers()});
+      const d = await r.json();
+      if(!r.ok){ $('result').innerHTML='<b>Fehler:</b> '+(d.error||r.status); return; }
+      const m=L.marker([lat,lng]).addTo(map).bindPopup(d.elevation+' m').openPopup();
+      layers.push(m);
+      $('result').innerHTML='Höhe: <b>'+d.elevation+' m</b><br><small>'+lat.toFixed(5)+', '+lng.toFixed(5)+'</small>';
+    }catch(err){ $('result').textContent='Netzwerkfehler'; }
+    return;
+  }
+  // LoS-Modus
+  if(!observer){ observer=[lat,lng]; clear();
+    layers.push(L.marker(observer).addTo(map).bindTooltip('Beobachter',{permanent:true}));
+    $('result').textContent='Beobachter gesetzt. Jetzt Ziel klicken.'; return; }
+  if(!target){ target=[lat,lng];
+    layers.push(L.marker(target).addTo(map).bindTooltip('Ziel',{permanent:true}));
+    await runLos(); observer=null; target=null; return; }
+});
+
+async function runLos(){
+  const oH=$('obsH').value||1.7, tH=$('tgtH').value||0;
+  const o=observer[0]+','+observer[1]+','+oH, t=target[0]+','+target[1]+','+tH;
+  try{
+    const r = await fetch('/v1/line-of-sight?observer='+o+'&target='+t+'&samples=200',{headers:headers()});
+    const d = await r.json();
+    if(!r.ok){ $('result').innerHTML='<b>Fehler:</b> '+(d.error||r.status); return; }
+    const col=colorFor(d.status);
+    layers.push(L.polyline([observer,target],{color:col,weight:4}).addTo(map));
+    if(d.blockedAt){ layers.push(L.circleMarker([d.blockedAt.lat,d.blockedAt.lon],
+      {radius:6,color:'#d23b3b',fillColor:'#d23b3b',fillOpacity:1}).addTo(map).bindTooltip('Verdeckung')); }
+    $('result').innerHTML='<span class="badge '+d.status+'">'+d.status.toUpperCase()+'</span> '
+      +'<b>'+d.visiblePercent+'%</b> sichtbar<br>'
+      +'sichtbare Höhe: '+d.visibleHeight_m+' m / '+d.target.height_m+' m<br>'
+      +'Distanz: '+(d.distance_m/1000).toFixed(2)+' km'
+      +(d.blockedAt?'<br>Verdeckung bei '+Math.round(d.blockedAt.distance_m)+' m':'');
+    drawProfile(o,t,d);
+  }catch(err){ $('result').textContent='Netzwerkfehler'; }
+}
+
+async function drawProfile(o,t,los){
+  const r=await fetch('/v1/profile?from='+observer.join(',')+'&to='+target.join(',')+'&samples=200',{headers:headers()});
+  const d=await r.json(); if(!r.ok) return;
+  const cv=$('profile'), ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,pad=22;
+  ctx.clearRect(0,0,W,H);
+  const els=d.profile.map(p=>p.elevation).filter(v=>v!=null);
+  const top=los.target.topElevation_m, eye=los.observer.eyeElevation_m;
+  const min=Math.min(...els), max=Math.max(top,...els), rng=(max-min)||1;
+  const sx=i=>pad+i/(d.profile.length-1)*(W-2*pad);
+  const sy=v=>H-pad-(v-min)/rng*(H-2*pad);
+  // Gelände
+  ctx.beginPath(); ctx.moveTo(sx(0),sy(d.profile[0].elevation||min));
+  d.profile.forEach((p,i)=>ctx.lineTo(sx(i),sy(p.elevation==null?min:p.elevation)));
+  ctx.lineTo(sx(d.profile.length-1),H-pad); ctx.lineTo(sx(0),H-pad); ctx.closePath();
+  ctx.fillStyle='rgba(121,85,72,.25)'; ctx.fill();
+  ctx.strokeStyle='#795548'; ctx.beginPath(); ctx.moveTo(sx(0),sy(d.profile[0].elevation||min));
+  d.profile.forEach((p,i)=>ctx.lineTo(sx(i),sy(p.elevation==null?min:p.elevation))); ctx.stroke();
+  // Sichtlinie
+  ctx.strokeStyle=colorFor(los.status); ctx.setLineDash([5,4]); ctx.beginPath();
+  ctx.moveTo(sx(0),sy(eye)); ctx.lineTo(sx(d.profile.length-1),sy(top)); ctx.stroke(); ctx.setLineDash([]);
+  // Achsen-Labels
+  ctx.fillStyle='#666'; ctx.font='10px sans-serif';
+  ctx.fillText(Math.round(max)+'m',2,12); ctx.fillText(Math.round(min)+'m',2,H-pad+10);
+}
+</script>
 </body>
 </html>`;
 

@@ -5,6 +5,7 @@ Höhendaten-Dienst auf Basis des **Brandenburg-DOM** (Airborne Laser Scanning,
 und **Sichtbarkeit/Line-of-Sight** — als einfache REST-API auf Cloudflare Workers.
 
 - **Live:** https://elevation-api.pischdi.workers.dev
+- **Interaktive Demo (Karte):** https://elevation-api.pischdi.workers.dev/demo
 - **Doku (Redoc):** https://elevation-api.pischdi.workers.dev/docs
 - **OpenAPI-Spec:** https://elevation-api.pischdi.workers.dev/openapi.json
 - **Abdeckung (MVP):** Region Neuhausen/Spree (Brandenburg) — die vorhandenen R2-Tiles.
