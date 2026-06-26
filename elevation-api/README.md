@@ -114,5 +114,10 @@ wrangler deploy --env=""
   echte nodata-Sentinel berücksichtigt werden.
 - **Kein Cross-Request-Cache:** jede Anfrage lädt Tiles neu (Request-lokaler Cache
   dedupliziert innerhalb einer Anfrage). Optimierung via Cache API ist Backlog.
-- **Genauigkeit `line-of-sight`:** klassische Sichtlinien-Näherung über das
-  Höhenprofil (ohne Erdkrümmung/Refraktion). Für sehr große Distanzen later TODO.
+- **`line-of-sight` / `viewshed` rechnen auf dem DOM** (Oberfläche inkl. Bäume
+  und Gebäude). Die Verdeckung wird über den **steilsten Sichtwinkel** (grazing
+  angle) bestimmt — ein nahes hohes Hindernis verdeckt korrekt auch weit
+  entfernte, tieferliegende Ziele. Folge: auf Augenhöhe (1,7 m) in/nahe Bebauung
+  ist die Sicht oft vollständig blockiert (realistisch). Für „Sicht über offenes
+  Gelände ohne Bewuchs" bräuchte man ein DTM (bare-earth) als zusätzlichen Layer.
+- **Genauigkeit:** ohne Erdkrümmung/Refraktion — für sehr große Distanzen TODO.

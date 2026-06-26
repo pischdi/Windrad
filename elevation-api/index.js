@@ -217,40 +217,42 @@ async function handleLineOfSight(url, env) {
 
   const eyeElevation = groundObs + obs.h;
   const targetTop = groundTgt + tgt.h;
-  const slope = distance > 0 ? (targetTop - eyeElevation) / distance : 0;
 
-  // Geländepunkt mit der stärksten Überhöhung über der Sichtlinie suchen.
-  let maxObstruction = 0;
-  let blockedAt = null;
+  // Steilster Sichtwinkel (als Tangens = Höhe/Distanz) zu einem Geländepunkt
+  // zwischen Beobachter und Ziel. Dieser "grazing angle" bestimmt, bis zu
+  // welcher Höhe am Ziel die Sicht verdeckt ist: Ein nahes hohes Hindernis
+  // (z.B. Haus 1,7 m vor dem Auge) erzeugt einen großen Winkel und verdeckt
+  // damit auch weit entferntes, tieferliegendes Gelände/Objekt.
+  let maxSlope = -Infinity;
+  let blockPoint = null;
   for (let i = 1; i < profile.length - 1; i++) {
     const terrain = profile[i].elevation;
     if (terrain === null) continue;
-    const sightHeight = eyeElevation + slope * profile[i].distance_m;
-    if (terrain > sightHeight) {
-      const obstruction = terrain - sightHeight;
-      if (obstruction > maxObstruction) {
-        maxObstruction = obstruction;
-        blockedAt = {
-          lat: round6(profile[i].lat),
-          lon: round6(profile[i].lon),
-          elevation: round2(terrain),
-          distance_m: round2(profile[i].distance_m),
-        };
-      }
-    }
+    const s = (terrain - eyeElevation) / profile[i].distance_m;
+    if (s > maxSlope) { maxSlope = s; blockPoint = profile[i]; }
   }
 
-  // Sichtbaren Anteil der Zielhöhe bestimmen.
-  let visibleHeight = tgt.h;
-  let visiblePercent = 100;
-  let status = 'visible';
+  // Höhe (ü.NN) auf der Ziel-Säule, bis zu der verdeckt ist.
+  const blockedUpto = maxSlope === -Infinity ? -Infinity : eyeElevation + maxSlope * distance;
 
-  if (blockedAt) {
-    const blockedHeight = Math.max(0, blockedAt.elevation - eyeElevation - slope * blockedAt.distance_m);
-    visibleHeight = Math.max(0, tgt.h - blockedHeight);
+  let visibleHeight, visiblePercent, status, blockedAt = null;
+  if (blockedUpto <= groundTgt) {
+    // Sichtlinie verläuft unter der Zielbasis → Ziel vollständig sichtbar.
+    visibleHeight = tgt.h;
+    visiblePercent = 100;
+    status = 'visible';
+  } else {
+    const visibleFrom = Math.min(blockedUpto, targetTop);
+    visibleHeight = Math.max(0, targetTop - visibleFrom);
     visiblePercent = tgt.h > 0 ? (visibleHeight / tgt.h) * 100 : 0;
-    if (visiblePercent < BLOCKED_THRESHOLD) status = 'blocked';
-    else if (visiblePercent < PARTIAL_THRESHOLD) status = 'partial';
+    status = visiblePercent < BLOCKED_THRESHOLD ? 'blocked'
+      : visiblePercent < PARTIAL_THRESHOLD ? 'partial' : 'visible';
+    blockedAt = {
+      lat: round6(blockPoint.lat),
+      lon: round6(blockPoint.lon),
+      elevation: round2(blockPoint.elevation),
+      distance_m: round2(blockPoint.distance_m),
+    };
   }
 
   return json({
