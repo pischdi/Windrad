@@ -19,6 +19,7 @@ und **Sichtbarkeit/Line-of-Sight** — als einfache REST-API auf Cloudflare Work
 | `GET /v1/point?lat=&lon=` | Höhe an einem Punkt (bilinear interpoliert) |
 | `GET /v1/profile?from=lat,lon&to=lat,lon&samples=n` | Höhenprofil entlang einer Linie |
 | `GET /v1/line-of-sight?observer=lat,lon[,h]&target=lat,lon[,h]&samples=n` | Sichtbarkeit / verdeckter Anteil |
+| `GET /v1/viewshed?observer=lat,lon[,h]&radius=&rays=&step=&targetHeight=` | Sichtweite (Fächer): sichtbare Distanz-Intervalle pro Richtung |
 | `GET /v1/health` | Liveness-Check (offen) |
 | `GET /docs`, `/openapi.json` | Dokumentation (offen) |
 

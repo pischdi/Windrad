@@ -79,6 +79,10 @@ export default {
         return await handleLineOfSight(url, env);
       }
 
+      if (url.pathname === '/v1/viewshed') {
+        return await handleViewshed(url, env);
+      }
+
       return json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
     } catch (err) {
       return json({ error: err.message, code: err.code || 'INTERNAL' }, err.status || 500);
@@ -269,6 +273,73 @@ async function handleLineOfSight(url, env) {
     },
     distance_m: round2(distance),
     samples,
+    source: 'DGM Brandenburg (ALS)',
+  });
+}
+
+/**
+ * GET /v1/viewshed?observer=<lat,lon[,h]>&radius=<m>&rays=<n>&step=<m>&targetHeight=<m>
+ *
+ * Sichtbarkeitsfächer: von einem Standort aus Strahlen in alle Richtungen.
+ * Entlang jedes Strahls ist ein Punkt sichtbar, solange sein Höhenwinkel den
+ * bisher größten Höhenwinkel (näheres Gelände) übersteigt. Liefert pro Richtung
+ * die sichtbaren Distanz-Intervalle [from,to] in Metern.
+ */
+async function handleViewshed(url, env) {
+  const obs = parseCoordWithHeight(url.searchParams.get('observer'), 'observer', EYE_HEIGHT);
+  const radius = clampNum(url.searchParams.get('radius'), 2500, 100, 5000, 'radius');
+  const rays = Math.round(clampNum(url.searchParams.get('rays'), 72, 8, 360, 'rays'));
+  const step = clampNum(url.searchParams.get('step'), 25, 10, 200, 'step');
+  const targetHeight = clampNum(url.searchParams.get('targetHeight'), 0, 0, 500, 'targetHeight');
+
+  const stepsPerRay = Math.floor(radius / step);
+  if (rays * stepsPerRay > 40000) {
+    throw apiError('Too many samples (rays × radius/step > 40000). Reduce radius/rays or increase step.', 400, 'BAD_REQUEST');
+  }
+
+  const cache = new Map();
+  const { x, y } = wgs84ToUtm33(obs.lat, obs.lon);
+  const ground = await bilinearElevation(x, y, env, cache);
+  if (ground === null) {
+    throw apiError('Observer has no elevation data (outside coverage)', 404, 'OUT_OF_COVERAGE');
+  }
+  const eye = ground + obs.h;
+
+  const directions = [];
+  for (let r = 0; r < rays; r++) {
+    const bearing = (360 / rays) * r;
+    let maxAng = -Infinity;
+    const visible = [];
+    let segStart = null;
+
+    for (let d = step; d <= radius; d += step) {
+      const p = destPoint(obs.lat, obs.lon, bearing, d);
+      const u = wgs84ToUtm33(p.lat, p.lon);
+      const terr = await bilinearElevation(u.x, u.y, env, cache);
+
+      let isVisible = false;
+      if (terr !== null) {
+        const terrAng = Math.atan2((terr + targetHeight) - eye, d);
+        isVisible = terrAng >= maxAng;
+        const blockAng = Math.atan2(terr - eye, d); // Gelände selbst verdeckt
+        if (blockAng > maxAng) maxAng = blockAng;
+      }
+
+      if (isVisible) {
+        if (segStart === null) segStart = d;
+      } else if (segStart !== null) {
+        visible.push([segStart, d - step]);
+        segStart = null;
+      }
+    }
+    if (segStart !== null) visible.push([segStart, radius]);
+    directions.push({ bearing: round2(bearing), visible });
+  }
+
+  return json({
+    observer: { lat: obs.lat, lon: obs.lon, groundElevation_m: round2(ground), height_m: obs.h, eyeElevation_m: round2(eye) },
+    radius_m: radius, rays, step_m: step, targetHeight_m: targetHeight,
+    directions,
     source: 'DGM Brandenburg (ALS)',
   });
 }
@@ -503,6 +574,26 @@ function buildOpenApi(origin) {
           },
         },
       },
+      '/v1/viewshed': {
+        get: {
+          summary: 'Sichtweite / Viewshed',
+          description:
+            'Sichtbarkeitsfächer von einem Standort: pro Richtung die sichtbaren '
+            + 'Distanz-Intervalle. Rechnet auf dem DOM (inkl. Bewuchs). Compute-intensiv.',
+          parameters: [
+            { name: 'observer', in: 'query', required: true, schema: { type: 'string' }, example: '51.6546,14.4178,1.7', description: '"lat,lon[,höhe]" Standort' },
+            { name: 'radius', in: 'query', required: false, schema: { type: 'integer', default: 2500, maximum: 5000 }, description: 'Radius in Metern' },
+            { name: 'rays', in: 'query', required: false, schema: { type: 'integer', default: 72, maximum: 360 }, description: 'Anzahl Richtungen' },
+            { name: 'step', in: 'query', required: false, schema: { type: 'integer', default: 25, minimum: 10 }, description: 'Schrittweite in Metern' },
+            { name: 'targetHeight', in: 'query', required: false, schema: { type: 'number', default: 0 }, description: 'Zielhöhe über Grund (m)' },
+            apiKeyHeader,
+          ],
+          responses: {
+            200: { description: 'Sichtweite', content: { 'application/json': { schema: { type: 'object' } } } },
+            ...errorResponses,
+          },
+        },
+      },
       '/v1/health': {
         get: { summary: 'Liveness-Check', security: [{}], responses: { 200: { description: 'OK' } } },
       },
@@ -607,8 +698,9 @@ const DEMO_HTML = `<!doctype html>
   <div id="map"></div>
   <div id="side">
     <div class="mode">
-      <button id="mPoint" class="active">Höhe (Punkt)</button>
+      <button id="mPoint" class="active">Höhe</button>
       <button id="mLos">Sichtlinie</button>
+      <button id="mView">Sichtweite</button>
     </div>
     <p id="hint">Klicke auf die Karte, um die Höhe an einem Punkt abzufragen.</p>
     <fieldset>
@@ -617,6 +709,8 @@ const DEMO_HTML = `<!doctype html>
       <input id="obsH" type="number" value="1.7" step="0.1"/>
       <label>Punkt B (Ziel) — Höhe (m, z.B. Windrad)</label>
       <input id="tgtH" type="number" value="250" step="1"/>
+      <label>Sichtweite-Radius (m, nur Modus „Sichtweite")</label>
+      <input id="vsR" type="number" value="2500" step="100"/>
       <label>API-Key (optional)</label>
       <input id="apiKey" type="text" placeholder="leer = anonym (30/min)"/>
     </fieldset>
@@ -646,14 +740,17 @@ let losLayers = [];       // Sichtlinie + Verdeckungspunkt (bei Neuberechnung er
 const $ = (id) => document.getElementById(id);
 const hints = {
   point: 'Klicke auf die Karte, um die Höhe an einem Punkt abzufragen.',
-  los: 'Klick 1 = Beobachter, Klick 2 = Ziel. Dann wird die Sichtbarkeit berechnet.'
+  los: 'Klick 1 = Beobachter, Klick 2 = Ziel. Dann wird die Sichtbarkeit berechnet.',
+  view: 'Klicke auf deinen Standort. Der grüne Fächer zeigt, was du von dort noch siehst (DOM, inkl. Bewuchs — Höhe oben anpassbar).'
 };
 function setMode(m){ mode=m; observer=null; target=null; clear();
   $('mPoint').classList.toggle('active', m==='point');
   $('mLos').classList.toggle('active', m==='los');
+  $('mView').classList.toggle('active', m==='view');
   $('hint').textContent = hints[m]; $('result').textContent='—'; }
 $('mPoint').onclick=()=>setMode('point');
 $('mLos').onclick=()=>setMode('los');
+$('mView').onclick=()=>setMode('view');
 $('reset').onclick=()=>{ observer=null; target=null; clear(); $('result').textContent='—'; };
 function clear(){ [layers,baseMarkers,losLayers].forEach(g=>g.forEach(l=>map.removeLayer(l)));
   layers=[]; baseMarkers=[]; losLayers=[];
@@ -674,6 +771,11 @@ map.on('click', async (e)=>{
     }catch(err){ $('result').textContent='Netzwerkfehler'; }
     return;
   }
+  if (mode==='view'){
+    observer=[lat,lng]; target=null; clear();
+    baseMarkers.push(L.marker(observer).addTo(map).bindTooltip('Standort',{permanent:true}));
+    await runViewshed(); return;
+  }
   // LoS-Modus: A → B; nach vollständigem Paar startet der nächste Klick neu.
   if(!observer || (observer && target)){
     observer=[lat,lng]; target=null; clear();
@@ -685,9 +787,40 @@ map.on('click', async (e)=>{
     await runLos(); return; }
 });
 
-// Höhen live: bei Änderung neu berechnen, wenn A und B gesetzt sind.
-$('obsH').oninput = ()=>{ if(observer&&target) runLos(); };
-$('tgtH').oninput = ()=>{ if(observer&&target) runLos(); };
+// Live-Neuberechnung bei Parameter-Änderung.
+$('obsH').oninput = ()=>{ if(mode==='los'&&observer&&target) runLos(); else if(mode==='view'&&observer) runViewshed(); };
+$('tgtH').oninput = ()=>{ if(mode==='los'&&observer&&target) runLos(); };
+$('vsR').oninput  = ()=>{ if(mode==='view'&&observer) runViewshed(); };
+
+// Geodätischer Zielpunkt (sphärisch) für die Fächer-Darstellung.
+function dest(lat,lon,brDeg,dist){
+  const R=6371000, br=brDeg*Math.PI/180, p1=lat*Math.PI/180, l1=lon*Math.PI/180, dr=dist/R;
+  const p2=Math.asin(Math.sin(p1)*Math.cos(dr)+Math.cos(p1)*Math.sin(dr)*Math.cos(br));
+  const l2=l1+Math.atan2(Math.sin(br)*Math.sin(dr)*Math.cos(p1),Math.cos(dr)-Math.sin(p1)*Math.sin(p2));
+  return [p2*180/Math.PI, l2*180/Math.PI];
+}
+
+async function runViewshed(){
+  const h=$('obsH').value||1.7, radius=$('vsR').value||2500;
+  try{
+    const r=await fetch('/v1/viewshed?observer='+observer[0]+','+observer[1]+','+h+'&radius='+radius+'&rays=60&step=25',{headers:headers()});
+    const d=await r.json();
+    if(!r.ok){ $('result').innerHTML='<b>Fehler:</b> '+(d.error||r.status); return; }
+    losLayers.forEach(l=>map.removeLayer(l)); losLayers=[];
+    losLayers.push(L.circle(observer,{radius:d.radius_m,color:'#888',weight:1,fill:false,dashArray:'4'}).addTo(map));
+    let total=0, maxd=0;
+    d.directions.forEach(dir=>dir.visible.forEach(([a,b])=>{
+      total+=b-a; if(b>maxd) maxd=b;
+      losLayers.push(L.polyline([dest(observer[0],observer[1],dir.bearing,a),dest(observer[0],observer[1],dir.bearing,b)],
+        {color:'#2e9e5b',weight:3,opacity:.6}).addTo(map));
+    }));
+    $('result').innerHTML='Standort: Augenhöhe '+d.observer.height_m+' m über Grund ('
+      +'<b>'+d.observer.eyeElevation_m+' m</b> ü.NN)<br>'
+      +'max. Sichtweite: <b>'+maxd+' m</b><br>'
+      +'sichtbare Strecke gesamt: '+Math.round(total)+' m<br>'
+      +'<small>DOM inkl. Bewuchs — Höhe oben erhöhen für mehr Weite.</small>';
+  }catch(err){ $('result').textContent='Netzwerkfehler'; }
+}
 
 async function runLos(){
   const oH=$('obsH').value||0, tH=$('tgtH').value||0;
@@ -788,6 +921,28 @@ function parseSamples(value) {
   const n = parseInt(value, 10);
   if (!isFinite(n) || n < 2) throw apiError('Invalid "samples": integer >= 2 required', 400, 'BAD_REQUEST');
   return Math.min(n, MAX_SAMPLES);
+}
+
+/** Parst eine Zahl mit Default und [min,max]-Clamping. */
+function clampNum(value, def, min, max, name) {
+  if (value === null || value === '') return def;
+  const n = parseFloat(value);
+  if (!isFinite(n)) throw apiError(`Invalid "${name}": number required`, 400, 'BAD_REQUEST');
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Geodätischer Zielpunkt (sphärisch): Start + Peilung(°) + Distanz(m) → {lat,lon}. */
+function destPoint(lat, lon, bearingDeg, distM) {
+  const R = 6371000;
+  const br = (bearingDeg * Math.PI) / 180;
+  const φ1 = (lat * Math.PI) / 180, λ1 = (lon * Math.PI) / 180;
+  const dr = distM / R;
+  const φ2 = Math.asin(Math.sin(φ1) * Math.cos(dr) + Math.cos(φ1) * Math.sin(dr) * Math.cos(br));
+  const λ2 = λ1 + Math.atan2(
+    Math.sin(br) * Math.sin(dr) * Math.cos(φ1),
+    Math.cos(dr) - Math.sin(φ1) * Math.sin(φ2)
+  );
+  return { lat: (φ2 * 180) / Math.PI, lon: (λ2 * 180) / Math.PI };
 }
 
 /** Geodätische Distanz (Haversine) in Metern. */
