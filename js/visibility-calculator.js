@@ -10,89 +10,64 @@ class VisibilityCalculator {
     }
 
     /**
-     * Calculate visibility between user and turbine
+     * Calculate visibility between user and turbine.
+     *
+     * Nutzt die Elevation API (/v1/line-of-sight + /v1/profile) als Single
+     * Source of Truth. Die frühere lokale Sichtlinien-Rechnung war fehlerhaft
+     * (Überhöhung gegen die Linie zur Spitze statt steilstem Sichtwinkel) und
+     * wurde durch die korrekte Grazing-Angle-Methode der API ersetzt.
      */
     async calculateVisibility(userLat, userLon, turbineLat, turbineLon, turbineHeight) {
         try {
-            // Get elevation profile
-            const profile = await this.elevationService.getProfile(
-                userLat, userLon,
-                turbineLat, turbineLon,
-                CONFIG.ELEVATION.samples
-            );
+            const base = CONFIG.ELEVATION_API;
+            const samples = CONFIG.ELEVATION.samples;
+            const observer = `${userLat},${userLon},${CONFIG.USER_EYE_HEIGHT}`;
+            const target = `${turbineLat},${turbineLon},${turbineHeight}`;
 
-            // Calculate distance in meters
-            const distance = calcDistance(userLat, userLon, turbineLat, turbineLon) * 1000;
-            
-            // User elevation (eye level)
-            const userElevation = profile[0].elevation + CONFIG.USER_EYE_HEIGHT;
-            
-            // Turbine elevation
-            const turbineElevation = profile[profile.length - 1].elevation;
-            const turbineTopElevation = turbineElevation + turbineHeight;
-            
-            // Calculate sight line
-            const sightLineSlope = (turbineTopElevation - userElevation) / distance;
-            
-            // Check each point for obstruction
-            let maxObstruction = 0;
-            let obstructionPoint = null;
-            
-            for (let i = 1; i < profile.length - 1; i++) {
-                const pointDistance = (distance / (profile.length - 1)) * i;
-                const sightLineHeight = userElevation + (sightLineSlope * pointDistance);
-                const terrainHeight = profile[i].elevation;
-                
-                if (terrainHeight > sightLineHeight) {
-                    const obstruction = terrainHeight - sightLineHeight;
-                    if (obstruction > maxObstruction) {
-                        maxObstruction = obstruction;
-                        obstructionPoint = {
-                            lat: profile[i].lat,
-                            lng: profile[i].lng,
-                            elevation: terrainHeight,
-                            distance: pointDistance,
-                            obstruction: obstruction
-                        };
-                    }
-                }
-            }
-            
-            // Calculate visible height
-            let visibleHeight = turbineHeight;
-            let visiblePercentage = 100;
-            let status = 'visible';
-            
-            if (obstructionPoint) {
-                // Calculate how much is blocked
-                const blockedHeight = Math.max(0, obstructionPoint.elevation - userElevation - 
-                    (sightLineSlope * obstructionPoint.distance));
-                visibleHeight = Math.max(0, turbineHeight - blockedHeight);
-                visiblePercentage = (visibleHeight / turbineHeight) * 100;
-                
-                if (visiblePercentage < CONFIG.VISIBILITY.blockedThreshold) {
-                    status = 'blocked';
-                } else if (visiblePercentage < CONFIG.VISIBILITY.partialThreshold) {
-                    status = 'partial';
-                }
-            }
-            
+            // Verdikt + Profil parallel holen.
+            const [losRes, profRes] = await Promise.all([
+                fetch(`${base}/v1/line-of-sight?observer=${observer}&target=${target}&samples=${samples}`),
+                fetch(`${base}/v1/profile?from=${userLat},${userLon}&to=${turbineLat},${turbineLon}&samples=${samples}`)
+            ]);
+            if (!losRes.ok) throw new Error('line-of-sight API: ' + losRes.status);
+            if (!profRes.ok) throw new Error('profile API: ' + profRes.status);
+            const los = await losRes.json();
+            const prof = await profRes.json();
+
+            // Profil in das von drawProfile erwartete Format ({lat,lng,elevation}).
+            // nodata (null) per Forward-Fill ersetzen, damit das Chart nicht kippt.
+            let lastEl = los.observer.groundElevation_m;
+            const profile = prof.profile.map(p => {
+                const elevation = p.elevation == null ? lastEl : p.elevation;
+                lastEl = elevation;
+                return { lat: p.lat, lng: p.lon, elevation };
+            });
+            profile.isDSM = true; // DOM (mit Bäumen/Gebäuden)
+
+            const obstructionPoint = los.blockedAt ? {
+                lat: los.blockedAt.lat,
+                lng: los.blockedAt.lon,
+                elevation: los.blockedAt.elevation,
+                distance: los.blockedAt.distance_m,
+                obstruction: Math.max(0, los.blockedAt.elevation - los.observer.eyeElevation_m)
+            } : null;
+
             return {
-                status: status,
-                visiblePercentage: visiblePercentage,
-                visibleHeight: visibleHeight,
+                status: los.status,
+                visiblePercentage: los.visiblePercent,
+                visibleHeight: los.visibleHeight_m,
                 totalHeight: turbineHeight,
                 obstructionPoint: obstructionPoint,
                 profile: profile,
-                userElevation: userElevation,
-                turbineElevation: turbineElevation,
-                turbineTopElevation: turbineTopElevation,
-                distance: distance,
-                isDSM: profile.isDSM || false  // Digital Surface Model (with trees/buildings)
+                userElevation: los.observer.eyeElevation_m,
+                turbineElevation: los.target.groundElevation_m,
+                turbineTopElevation: los.target.topElevation_m,
+                distance: los.distance_m,
+                isDSM: true
             };
-            
+
         } catch (error) {
-            console.error('Visibility calculation error:', error);
+            console.error('Visibility calculation error (Elevation API):', error);
             return null;
         }
     }

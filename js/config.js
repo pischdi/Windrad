@@ -18,6 +18,9 @@ const CONFIG = {
     
     // CSV Windräder Daten
     CSV_URL: 'https://raw.githubusercontent.com/pischdi/Windrad/main/windraeder.csv',
+
+    // Elevation API (Höhe, Profil, Sichtbarkeit) — Single Source of Truth
+    ELEVATION_API: 'https://elevation-api.pischdi.workers.dev',
     
     // Elevation Profile Settings
     ELEVATION: {
