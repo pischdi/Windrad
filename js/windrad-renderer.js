@@ -46,11 +46,13 @@ class WindradRenderer {
             }
         }
 
-        // Calculate pixel size based on angular size (field of view)
-        // Typical smartphone camera FOV: 60-70 degrees vertical
-        const fov = 65; // degrees (vertical field of view)
+        // Pixelgröße aus der Winkelgröße: ein Objekt der Höhe H in Distanz D
+        // überspannt vertikal atan(H/D); sein Anteil am vertikalen FOV × Canvas-
+        // Höhe ergibt die Pixelhöhe. (Vorher: fixer ×1.5-Faktor und ein
+        // Mindestwert von 50 px → ferne Windräder viel zu groß.)
+        const fov = 65; // vertikaler FOV in Grad (Näherung Smartphone)
         const angularSizeDeg = Math.atan(visibleHeight / distanceMeters) * (180 / Math.PI);
-        const pixelHeight = Math.max(50, Math.min(height * 0.9, (angularSizeDeg / fov) * height * 1.5));
+        let pixelHeight = Math.max(2, Math.min(height * 0.95, (angularSizeDeg / fov) * height));
 
         // Calculate horizontal position based on camera orientation
         let x = width / 2; // Default: center
@@ -91,7 +93,7 @@ class WindradRenderer {
             if (orientationData.aiPosition.sizePercent) {
                 const aiPixelHeight = orientationData.aiPosition.sizePercent * height;
                 // Update pixelHeight for AI recommendation
-                pixelHeight = Math.max(50, Math.min(height * 0.9, aiPixelHeight));
+                pixelHeight = Math.max(2, Math.min(height * 0.95, aiPixelHeight));
             }
         } else if (orientationData && orientationData.devicePitch !== undefined && orientationData.cameraHeight !== undefined) {
             // Calculate elevation angle to turbine top
