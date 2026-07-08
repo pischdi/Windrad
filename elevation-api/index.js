@@ -151,9 +151,9 @@ async function handlePoint(url, env) {
   }
   checkLatLon(lat, lon, 'lat/lon');
 
-  const { x, y } = wgs84ToUtm33(lat, lon);
+  const { zone, x, y } = wgs84ToUtm(lat, lon);
   const cache = new Map();
-  const elevation = await bilinearElevation(x, y, env, cache);
+  const elevation = await bilinearElevation(zone, x, y, env, cache);
 
   if (elevation === null) {
     throw apiError('No elevation data for these coordinates (outside covered tiles)', 404, 'OUT_OF_COVERAGE');
@@ -164,7 +164,7 @@ async function handlePoint(url, env) {
     lon,
     elevation: Math.round(elevation * 100) / 100,
     unit: 'm',
-    source: 'DGM Brandenburg (ALS)',
+    source: 'DOM Deutschland (1 m)',
     resolution_m: 1,
   });
 }
@@ -185,7 +185,7 @@ async function handleProfile(url, env) {
     distance_m: round2(distance),
     samples,
     unit: 'm',
-    source: 'DGM Brandenburg (ALS)',
+    source: 'DOM Deutschland (1 m)',
     profile: profile.map((p) => ({
       lat: round6(p.lat),
       lon: round6(p.lon),
@@ -275,7 +275,7 @@ async function handleLineOfSight(url, env) {
     },
     distance_m: round2(distance),
     samples,
-    source: 'DGM Brandenburg (ALS)',
+    source: 'DOM Deutschland (1 m)',
   });
 }
 
@@ -300,8 +300,8 @@ async function handleViewshed(url, env) {
   }
 
   const cache = new Map();
-  const { x, y } = wgs84ToUtm33(obs.lat, obs.lon);
-  const ground = await bilinearElevation(x, y, env, cache);
+  const { zone, x, y } = wgs84ToUtm(obs.lat, obs.lon);
+  const ground = await bilinearElevation(zone, x, y, env, cache);
   if (ground === null) {
     throw apiError('Observer has no elevation data (outside coverage)', 404, 'OUT_OF_COVERAGE');
   }
@@ -316,8 +316,8 @@ async function handleViewshed(url, env) {
 
     for (let d = step; d <= radius; d += step) {
       const p = destPoint(obs.lat, obs.lon, bearing, d);
-      const u = wgs84ToUtm33(p.lat, p.lon);
-      const terr = await bilinearElevation(u.x, u.y, env, cache);
+      const u = wgs84ToUtm(p.lat, p.lon);
+      const terr = await bilinearElevation(u.zone, u.x, u.y, env, cache);
 
       let isVisible = false;
       if (terr !== null) {
@@ -342,7 +342,7 @@ async function handleViewshed(url, env) {
     observer: { lat: obs.lat, lon: obs.lon, groundElevation_m: round2(ground), height_m: obs.h, eyeElevation_m: round2(eye) },
     radius_m: radius, rays, step_m: step, targetHeight_m: targetHeight,
     directions,
-    source: 'DGM Brandenburg (ALS)',
+    source: 'DOM Deutschland (1 m)',
   });
 }
 
@@ -359,8 +359,8 @@ async function buildProfile(from, to, samples, env) {
     const t = samples === 1 ? 0 : i / (samples - 1);
     const lat = from.lat + (to.lat - from.lat) * t;
     const lon = from.lon + (to.lon - from.lon) * t;
-    const { x, y } = wgs84ToUtm33(lat, lon);
-    const elevation = await bilinearElevation(x, y, env, cache);
+    const { zone, x, y } = wgs84ToUtm(lat, lon);
+    const elevation = await bilinearElevation(zone, x, y, env, cache);
     profile.push({ lat, lon, distance_m: distance * t, elevation });
   }
 
@@ -372,15 +372,15 @@ async function buildProfile(from, to, samples, env) {
  * Lädt für jede der 4 umliegenden Gridzellen die passende Kachel (über Cache).
  * Werte von 0 werden als "keine Daten" behandelt.
  */
-async function bilinearElevation(x, y, env, cache) {
+async function bilinearElevation(zone, x, y, env, cache) {
   const x0 = Math.floor(x), y0 = Math.floor(y);
   const fx = x - x0, fy = y - y0;
 
   const [h00, h10, h01, h11] = await Promise.all([
-    cellElevation(x0,     y0,     env, cache),
-    cellElevation(x0 + 1, y0,     env, cache),
-    cellElevation(x0,     y0 + 1, env, cache),
-    cellElevation(x0 + 1, y0 + 1, env, cache),
+    cellElevation(zone, x0,     y0,     env, cache),
+    cellElevation(zone, x0 + 1, y0,     env, cache),
+    cellElevation(zone, x0,     y0 + 1, env, cache),
+    cellElevation(zone, x0 + 1, y0 + 1, env, cache),
   ]);
 
   const corners = [h00, h10, h01, h11].filter((h) => h !== null);
@@ -401,10 +401,10 @@ async function bilinearElevation(x, y, env, cache) {
  * Höhe einer einzelnen Gridzelle (Integer-Meter, EPSG:25833) in Metern,
  * oder null bei nodata / fehlender Kachel.
  */
-async function cellElevation(x, y, env, cache) {
+async function cellElevation(zone, x, y, env, cache) {
   const tileX = Math.floor(x / TILE_SIZE);
   const tileY = Math.floor(y / TILE_SIZE);
-  const tile = await loadTile(tileX, tileY, env, cache);
+  const tile = await loadTile(zone, tileX, tileY, env, cache);
   if (!tile) return null;
 
   const localX = x - tileX * TILE_SIZE;
@@ -424,31 +424,38 @@ async function cellElevation(x, y, env, cache) {
  * gleichzeitige Lookups derselben Kachel (z.B. die 4 bilinearen Ecken)
  * nur einen einzigen Fetch/R2-Get auslösen.
  */
-function loadTile(tileX, tileY, env, cache) {
-  const key = `tile_${tileX}_${tileY}.bin`;
+function loadTile(zone, tileX, tileY, env, cache) {
+  // Primärer Key mit Zonen-Präfix; für Zone 33 zusätzlich der Alt-Key ohne
+  // Präfix (die ursprünglichen Brandenburg-Kacheln liegen als tile_x_y.bin).
+  const key = `tile_${zone}_${tileX}_${tileY}.bin`;
   if (cache.has(key)) return cache.get(key);
 
+  const candidates = zone === 33
+    ? [key, `tile_${tileX}_${tileY}.bin`]
+    : [key];
+
   const promise = (async () => {
-    let buffer = null;
+    for (const k of candidates) {
+      let buffer = null;
 
-    // 1) Bevorzugt: R2-Binding
-    if (env && env.TILES) {
-      const obj = await env.TILES.get(key);
-      if (obj) buffer = await obj.arrayBuffer();
+      // 1) Bevorzugt: R2-Binding
+      if (env && env.TILES) {
+        const obj = await env.TILES.get(k);
+        if (obj) buffer = await obj.arrayBuffer();
+      }
+      // 2) Fallback: öffentliche R2-URL
+      if (!buffer) {
+        const resp = await fetch(`${PUBLIC_R2}/${k}`);
+        if (resp.ok) buffer = await resp.arrayBuffer();
+      }
+      if (!buffer) continue;
+
+      if (buffer.byteLength !== TILE_SIZE * TILE_SIZE * 2) {
+        throw apiError(`Invalid tile size for ${k}: ${buffer.byteLength} bytes`, 500, 'BAD_TILE');
+      }
+      return new Uint16Array(buffer);
     }
-
-    // 2) Fallback: öffentliche R2-URL
-    if (!buffer) {
-      const resp = await fetch(`${PUBLIC_R2}/${key}`);
-      if (resp.ok) buffer = await resp.arrayBuffer();
-    }
-
-    if (!buffer) return null;
-
-    if (buffer.byteLength !== TILE_SIZE * TILE_SIZE * 2) {
-      throw apiError(`Invalid tile size for ${key}: ${buffer.byteLength} bytes`, 500, 'BAD_TILE');
-    }
-    return new Uint16Array(buffer);
+    return null;
   })();
 
   cache.set(key, promise);
@@ -456,20 +463,22 @@ function loadTile(tileX, tileY, env, cache) {
 }
 
 /**
- * WGS84 (lat/lon) → ETRS89/UTM Zone 33N (EPSG:25833).
+ * WGS84 (lat/lon) → ETRS89/UTM, Zone 32N (EPSG:25832) oder 33N (EPSG:25833).
  *
- * Vollständige Transverse-Mercator-Vorwärtsformel (Snyder) inkl.
- * Meridianbogen M. Die in der Frontend-App genutzte Näherung
- * (y = k0·N·φ) ließ M weg und lieferte einen um ~37 km falschen
- * Northing — daher hier die korrekte Variante. Verifiziert gegen alle
- * vier bekannten Windrad-Kacheln (Northing/Easting + plausible Höhen).
+ * Deutschland-Konvention: UTM32 westlich von 12°E, UTM33 östlich davon.
+ * Liefert { zone, x, y }, damit Kacheln pro Zone (unterschiedliches Gitter)
+ * korrekt adressiert werden. Vollständige Transverse-Mercator-Vorwärtsformel
+ * (Snyder) inkl. Meridianbogen M; verifiziert gegen die Brandenburg-Kacheln.
  */
-function wgs84ToUtm33(lat, lon) {
+function wgs84ToUtm(lat, lon) {
+  const zone = lon < 12 ? 32 : 33;
+  const lon0deg = zone === 32 ? 9 : 15;   // Mittelmeridian der Zone
+
   const a = 6378137.0;                 // WGS84 große Halbachse
   const f = 1 / 298.257223563;         // Abplattung
   const e2 = f * (2 - f);              // erste Exzentrizität²
   const k0 = 0.9996;                   // Maßstabsfaktor
-  const lon0 = (15 * Math.PI) / 180;   // Mittelmeridian Zone 33N
+  const lon0 = (lon0deg * Math.PI) / 180;
 
   const phi = (lat * Math.PI) / 180;
   const lam = (lon * Math.PI) / 180;
@@ -498,7 +507,7 @@ function wgs84ToUtm33(lat, lon) {
     )
   );
 
-  return { x, y };
+  return { zone, x, y };
 }
 
 // ---- OpenAPI + Docs ----
