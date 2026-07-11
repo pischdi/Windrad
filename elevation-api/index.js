@@ -62,6 +62,11 @@ export default {
           headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
         });
       }
+      if (url.pathname === '/losspinne') {
+        return new Response(LOSSPINNE_HTML, {
+          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
 
       // Auth + Rate-Limit für alle Datenendpunkte.
       const gate = await authAndRateLimit(request, env);
@@ -890,6 +895,266 @@ async function drawProfile(los){
   ctx.fillStyle='#2563eb'; ctx.fillText('A '+Math.round(eye)+'m',sx(0),H-6);
   ctx.fillStyle='#0b8f6a'; ctx.textAlign='right'; ctx.fillText(Math.round(top)+'m B',sx(n-1),H-6); ctx.textAlign='left';
 }
+</script>
+</body>
+</html>`;
+
+// =====================================================================
+//  Losspinne — LoS-Test-Light: mehrere Standorte × mehrere Windräder.
+//  Jeder Standort spannt eine "Spinne" mit je einer Sichtlinie pro
+//  Windrad (grün/orange/rot). Klick auf eine Linie → Höhenprofil.
+//  Same-origin zu /v1/* (kein CORS/Key nötig für anonyme Nutzung).
+// =====================================================================
+const LOSSPINNE_HTML = `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Losspinne — Sichtbarkeits-Test</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; color: #1a2433; }
+  header { padding: 10px 16px; background: #0b3b44; color: #fff; }
+  header h1 { font-size: 16px; margin: 0; }
+  header a { color: #9fe4d0; font-size: 13px; text-decoration: none; }
+  #wrap { display: flex; height: calc(100vh - 44px); }
+  #map { flex: 1; }
+  #side { width: 360px; padding: 14px; overflow-y: auto; border-left: 1px solid #ddd; }
+  fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0 0 12px; padding: 8px 10px; }
+  legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+  label { font-size: 13px; display: block; margin: 6px 0 2px; }
+  input { width: 100%; padding: 5px; font-size: 13px; }
+  #hint { font-size: 12px; color: #666; margin: 4px 0; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; color: #fff; font-weight: 600; font-size: 12px; }
+  .visible { background: #2e9e5b; } .partial { background: #e08e00; } .blocked { background: #d23b3b; } .err { background: #888; }
+  .legend-row { font-size: 12px; margin: 2px 0; display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 22px; height: 4px; border-radius: 2px; display: inline-block; }
+  .obs-card { border: 1px solid #e3e3e3; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; }
+  .obs-card h4 { margin: 0 0 4px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+  .obs-card .rm { color: #d23b3b; cursor: pointer; font-size: 12px; border: none; background: none; padding: 0; }
+  .line-item { cursor: pointer; padding: 2px 4px; border-radius: 4px; display: flex; justify-content: space-between; gap: 6px; }
+  .line-item:hover { background: #f2f7f6; }
+  .line-item.sel { background: #dcefe9; }
+  #details { font-size: 13px; line-height: 1.5; }
+  canvas { width: 100%; height: 170px; border: 1px solid #eee; margin-top: 8px; }
+  button.reset { width: 100%; padding: 7px; margin-top: 6px; cursor: pointer; }
+  .sum { font-weight: 600; }
+</style>
+</head>
+<body>
+<header><h1>Losspinne — Sichtbarkeits-Test &nbsp;·&nbsp; <a href="/demo">Demo</a> &nbsp;<a href="/docs">API-Doku</a></h1></header>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="side">
+    <p id="hint"><b>Klick auf die Karte</b> = Standort setzen. Von jedem Standort läuft eine Linie zu jedem Windrad: <span class="badge visible">grün</span> sichtbar, <span class="badge partial">orange</span> teilweise, <span class="badge blocked">rot</span> verdeckt.</p>
+    <fieldset>
+      <legend>Parameter</legend>
+      <label>Augenhöhe Standort (m über Grund)</label>
+      <input id="obsH" type="number" value="1.7" step="0.1"/>
+      <label>API-Key (optional, für viele Standorte)</label>
+      <input id="apiKey" type="text" placeholder="leer = anonym (30/min)"/>
+    </fieldset>
+    <fieldset>
+      <legend>Standorte</legend>
+      <div id="obsList"><span id="hint">Noch kein Standort gesetzt.</span></div>
+    </fieldset>
+    <fieldset>
+      <legend>Ausgewählte Linie</legend>
+      <div id="details">Klicke eine Verbindungslinie (Karte oder Liste) für Details + Höhenprofil.</div>
+      <canvas id="profile" width="330" height="180"></canvas>
+    </fieldset>
+    <fieldset>
+      <legend>Windräder (Ziele)</legend>
+      <div id="tgtList" style="font-size:12px"></div>
+    </fieldset>
+    <button class="reset" id="reset">Alle Standorte löschen</button>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// --- Ziele: 4 Windräder aus windraeder.csv. Spitzenhöhe = Nabe + Rotor/2 ---
+const TURBINES = [
+  { name:'Test-Laubsdorf',   lat:51.654580, lon:14.417839, hub:166, rotor:150 },
+  { name:'Acker',            lat:51.671126, lon:14.431937, hub:166, rotor:150 },
+  { name:'Kathlow',          lat:51.763929, lon:14.493198, hub:250, rotor:200 },
+  { name:'Richtung Roggosen',lat:51.690500, lon:14.451914, hub:165, rotor:170 },
+];
+TURBINES.forEach(t => t.tip = t.hub + t.rotor/2);
+
+const map = L.map('map').setView([51.695, 14.448], 12);
+L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+  { attribution: '© OpenStreetMap, © OpenTopoMap', maxZoom: 17 }).addTo(map);
+
+const $ = (id) => document.getElementById(id);
+function headers(){ const k=$('apiKey').value.trim(); return k?{'X-API-Key':k}:{}; }
+function eyeH(){ const v=parseFloat($('obsH').value); return isFinite(v)?v:1.7; }
+function colorFor(s){ return s==='visible'?'#2e9e5b':s==='partial'?'#e08e00':s==='blocked'?'#d23b3b':'#888'; }
+
+// Windräder als Marker
+TURBINES.forEach(t => {
+  L.circleMarker([t.lat,t.lon], { radius:7, color:'#0b3b44', weight:2, fillColor:'#0b3b44', fillOpacity:.9 })
+    .addTo(map).bindTooltip(t.name+' ('+Math.round(t.tip)+' m)', { permanent:false });
+});
+
+let observers = [];   // {id, lat, lon, marker, lines:[{t, los, pl}]}
+let obsSeq = 0;
+let selected = null;  // {pl, ...}
+
+map.on('click', (e)=> addObserver(e.latlng.lat, e.latlng.lng));
+$('reset').onclick = resetAll;
+$('obsH').oninput = recomputeAll;
+
+async function addObserver(lat, lon){
+  const id = ++obsSeq;
+  const marker = L.marker([lat,lon]).addTo(map).bindTooltip('S'+id, { permanent:true, direction:'top' });
+  const obs = { id, lat, lon, marker, lines:[] };
+  observers.push(obs);
+  await computeSpider(obs);
+  renderObsList();
+}
+
+// Eine Sichtlinie pro Windrad; alle Fetches parallel.
+async function computeSpider(obs){
+  obs.lines.forEach(l => map.removeLayer(l.pl));
+  obs.lines = [];
+  const oH = eyeH();
+  const jobs = TURBINES.map(t => {
+    const o = obs.lat+','+obs.lon+','+oH;
+    const tt = t.lat+','+t.lon+','+t.tip;
+    return fetch('/v1/line-of-sight?observer='+o+'&target='+tt+'&samples=200', { headers: headers() })
+      .then(r => r.json().then(d => ({ ok:r.ok, d })))
+      .catch(() => ({ ok:false, d:{ error:'Netzwerkfehler' } }));
+  });
+  const results = await Promise.all(jobs);
+  results.forEach((res, i) => {
+    const t = TURBINES[i];
+    const los = res.ok ? res.d : { status:undefined, error:(res.d && res.d.error) || 'Fehler' };
+    const col = colorFor(los.status);
+    const dash = los.status ? null : '5,5';
+    const pl = L.polyline([[obs.lat,obs.lon],[t.lat,t.lon]],
+      { color:col, weight:3, opacity:.8, dashArray:dash }).addTo(map);
+    const line = { t, los, pl };
+    pl.on('click', () => selectLine(obs, line));
+    obs.lines.push(line);
+  });
+}
+
+async function recomputeAll(){
+  for (const obs of observers) await computeSpider(obs);
+  renderObsList();
+  if (selected) selected = null, $('details').innerHTML='Standort-Höhe geändert — Linie neu wählen.';
+}
+
+function resetAll(){
+  observers.forEach(o => { map.removeLayer(o.marker); o.lines.forEach(l=>map.removeLayer(l.pl)); });
+  observers = []; obsSeq = 0; selected = null;
+  renderObsList();
+  $('details').innerHTML = 'Klicke eine Verbindungslinie für Details + Höhenprofil.';
+  const c=$('profile').getContext('2d'); c.clearRect(0,0,2000,2000);
+}
+
+function removeObserver(id){
+  const i = observers.findIndex(o=>o.id===id); if(i<0) return;
+  const o = observers[i];
+  map.removeLayer(o.marker); o.lines.forEach(l=>map.removeLayer(l.pl));
+  observers.splice(i,1); renderObsList();
+}
+
+function statusLabel(s){ return s==='visible'?'sichtbar':s==='partial'?'teilweise':s==='blocked'?'verdeckt':'Fehler'; }
+
+// Sidebar: pro Standort eine Karte mit Zusammenfassung + Linien-Liste.
+function renderObsList(){
+  const box = $('obsList');
+  if (!observers.length){ box.innerHTML = '<span id="hint">Noch kein Standort gesetzt.</span>'; return; }
+  box.innerHTML = '';
+  observers.forEach(obs => {
+    const card = document.createElement('div'); card.className='obs-card';
+    const cnt = { visible:0, partial:0, blocked:0, err:0 };
+    obs.lines.forEach(l => cnt[l.los.status || 'err']++);
+    const h = document.createElement('h4');
+    h.innerHTML = '<span>Standort S'+obs.id+'</span>';
+    const rm = document.createElement('button'); rm.className='rm'; rm.textContent='entfernen';
+    rm.onclick = () => removeObserver(obs.id);
+    h.appendChild(rm); card.appendChild(h);
+    const sum = document.createElement('div'); sum.className='sum';
+    sum.innerHTML = '<span class="badge visible">'+cnt.visible+'</span> '
+      + '<span class="badge partial">'+cnt.partial+'</span> '
+      + '<span class="badge blocked">'+cnt.blocked+'</span>'
+      + (cnt.err?' <span class="badge err">'+cnt.err+'</span>':'');
+    card.appendChild(sum);
+    obs.lines.forEach(l => {
+      const row = document.createElement('div'); row.className='line-item';
+      if (selected && selected.pl===l.pl) row.classList.add('sel');
+      const pct = l.los.status ? (' '+l.los.visiblePercent+'%') : '';
+      row.innerHTML = '<span>'+l.t.name+'</span>'
+        + '<span class="badge '+(l.los.status||'err')+'">'+statusLabel(l.los.status)+pct+'</span>';
+      row.onclick = () => selectLine(obs, l);
+      card.appendChild(row);
+    });
+    box.appendChild(card);
+  });
+}
+
+async function selectLine(obs, line){
+  if (selected && selected.pl) selected.pl.setStyle({ weight:3 });
+  selected = { pl: line.pl, obs, line };
+  line.pl.setStyle({ weight:6 });
+  renderObsList();
+  const los = line.los, t = line.t;
+  if (!los.status){
+    $('details').innerHTML = '<b>'+t.name+':</b> '+(los.error||'keine Daten (außerhalb Abdeckung?)');
+    const c=$('profile').getContext('2d'); c.clearRect(0,0,2000,2000);
+    return;
+  }
+  $('details').innerHTML =
+    'S'+obs.id+' → <b>'+t.name+'</b><br>'
+    + '<span class="badge '+los.status+'">'+los.status.toUpperCase()+'</span> '
+    + '<b>'+los.visiblePercent+'%</b> sichtbar<br>'
+    + 'sichtbare Höhe: '+los.visibleHeight_m+' m / '+los.target.height_m+' m (Spitze)<br>'
+    + 'Distanz: '+(los.distance_m/1000).toFixed(2)+' km'
+    + (los.blockedAt ? '<br>Verdeckung bei '+Math.round(los.blockedAt.distance_m)+' m' : '');
+  await drawProfile([obs.lat,obs.lon], [t.lat,t.lon], los);
+}
+
+// Geländeschnitt Standort → Windrad (analog /demo), mit Masten + Sichtlinie.
+async function drawProfile(fromArr, toArr, los){
+  const r = await fetch('/v1/profile?from='+fromArr.join(',')+'&to='+toArr.join(',')+'&samples=200', { headers: headers() });
+  const d = await r.json(); if(!r.ok) return;
+  const cv=$('profile'), ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,pad=24,n=d.profile.length;
+  ctx.clearRect(0,0,W,H);
+  const els=d.profile.map(p=>p.elevation).filter(v=>v!=null);
+  const gA=los.observer.groundElevation_m, gB=los.target.groundElevation_m;
+  const eye=los.observer.eyeElevation_m, top=los.target.topElevation_m;
+  const min=Math.min(...els), max=Math.max(top,...els), rng=(max-min)||1;
+  const sx=i=>pad+i/(n-1)*(W-2*pad);
+  const sy=v=>H-pad-(v-min)/rng*(H-2*pad);
+  const valAt=i=>d.profile[i].elevation==null?min:d.profile[i].elevation;
+  ctx.beginPath(); ctx.moveTo(sx(0),sy(valAt(0)));
+  for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(valAt(i)));
+  ctx.lineTo(sx(n-1),H-pad); ctx.lineTo(sx(0),H-pad); ctx.closePath();
+  ctx.fillStyle='rgba(121,85,72,.25)'; ctx.fill();
+  ctx.strokeStyle='#795548'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(sx(0),sy(valAt(0)));
+  for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(valAt(i))); ctx.stroke();
+  ctx.lineWidth=3;
+  ctx.strokeStyle='#2563eb'; ctx.beginPath(); ctx.moveTo(sx(0),sy(gA)); ctx.lineTo(sx(0),sy(eye)); ctx.stroke();
+  ctx.strokeStyle='#0b8f6a'; ctx.beginPath(); ctx.moveTo(sx(n-1),sy(gB)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke();
+  ctx.strokeStyle=colorFor(los.status); ctx.lineWidth=1.5; ctx.setLineDash([5,4]); ctx.beginPath();
+  ctx.moveTo(sx(0),sy(eye)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke(); ctx.setLineDash([]);
+  if(los.blockedAt){ const bi=Math.round(los.blockedAt.distance_m/los.distance_m*(n-1));
+    ctx.fillStyle='#d23b3b'; ctx.beginPath(); ctx.arc(sx(bi),sy(los.blockedAt.elevation),4,0,7); ctx.fill(); }
+  ctx.fillStyle='#666'; ctx.font='10px sans-serif'; ctx.textAlign='left';
+  ctx.fillText(Math.round(max)+'m',2,12); ctx.fillText(Math.round(min)+'m',2,H-pad+11);
+  ctx.fillStyle='#2563eb'; ctx.fillText('S '+Math.round(eye)+'m',sx(0),H-6);
+  ctx.fillStyle='#0b8f6a'; ctx.textAlign='right'; ctx.fillText(Math.round(top)+'m',sx(n-1),H-6); ctx.textAlign='left';
+}
+
+// Ziel-Liste rendern
+(function(){
+  $('tgtList').innerHTML = TURBINES.map(t =>
+    '&#9679; '+t.name+' — Nabe '+t.hub+' m, Rotor '+t.rotor+' m → Spitze <b>'+Math.round(t.tip)+' m</b>'
+  ).join('<br>');
+})();
 </script>
 </body>
 </html>`;
