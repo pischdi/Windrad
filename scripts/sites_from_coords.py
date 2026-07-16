@@ -32,11 +32,11 @@ E2 = F * (2 - F)
 K0 = 0.9996
 
 COLS = {
-    "nr":   ["standort-nr", "standortnr", "standort_nr", "standortnummer", "site", "siteid", "id"],
+    "nr":   ["standort-nr", "standortnr", "standort_nr", "standortnummer", "site", "siteid", "id", "nr"],
     "lat":  ["lat", "breite", "latitude", "wgs84_lat", "geo_lat"],
     "lon":  ["lon", "länge", "laenge", "lng", "longitude", "wgs84_lon", "geo_lon"],
-    "east": ["ost", "ostwert", "rechtswert", "easting", "utm_e", "utm_ost", "e"],
-    "north":["nord", "nordwert", "hochwert", "northing", "utm_n", "utm_nord", "n"],
+    "east": ["ost", "ostwert", "rechtswert", "easting", "utm_e", "utm_ost", "utm32_x", "utm33_x", "e"],
+    "north":["nord", "nordwert", "hochwert", "northing", "utm_n", "utm_nord", "utm32_y", "utm33_y", "n"],
     "zone": ["zone", "utm_zone", "utmzone"],
     "h":    ["höhe", "hoehe", "antennenhöhe", "antennenhoehe", "mast", "height"],
     "op":   ["operator", "betreiber", "netzbetreiber"],
@@ -81,9 +81,11 @@ def utm_to_wgs84(east, north, zone):
     return math.degrees(lat), math.degrees(lon)
 
 
-def wgs84_to_utm(lat, lon):
-    """Forward (identisch zur Worker-Logik) -> (zone, x, y) für den Tile-Filter."""
-    zone = 32 if lon < 12 else 33
+def wgs84_to_utm(lat, lon, force_zone=None):
+    """Forward (identisch zur Worker-Logik) -> (zone, x, y) für den Tile-Filter.
+    force_zone erzwingt eine UTM-Zone (nötig, weil der Tile-Schlüssel E_N keine
+    Zone trägt und der Abdeckungs-Tileset UTM33/Brandenburg ist)."""
+    zone = force_zone if force_zone else (32 if lon < 12 else 33)
     lon0 = math.radians(9 if zone == 32 else 15)
     phi, lam = math.radians(lat), math.radians(lon)
     ep2 = E2 / (1 - E2)
@@ -102,12 +104,19 @@ def wgs84_to_utm(lat, lon):
 
 
 def covered_tiles():
+    """Abdeckungs-Manifest lesen. Akzeptiert zonenpräfixierte Keys
+    (tile_<zone>_<E>_<N>) und Legacy-Keys (tile_<E>_<N> = Zone 33/Brandenburg).
+    Rückgabe: Set von "<zone>_<E>_<N>"."""
     s = set()
     if not os.path.exists(TILE_LIST): return s
     import re
     for line in open(TILE_LIST, encoding='utf-8'):
-        m = re.search(r'tile_(\d+)_(\d+)', line)
-        if m: s.add(m.group(1) + '_' + m.group(2))
+        m = re.search(r'tile_(\d+)_(\d+)_(\d+)', line)      # zone_E_N
+        if m:
+            s.add(f"{m.group(1)}_{m.group(2)}_{m.group(3)}"); continue
+        m = re.search(r'tile_(\d+)_(\d+)', line)             # Legacy E_N -> Zone 33
+        if m:
+            s.add(f"33_{m.group(1)}_{m.group(2)}")
     return s
 
 
@@ -119,11 +128,21 @@ def main():
     ap.add_argument("-o", "--out", default=OUT)
     args = ap.parse_args()
 
-    with open(args.csv, newline='', encoding='utf-8-sig') as f:
-        sample = f.read(4096); f.seek(0)
-        try: dialect = csv.Sniffer().sniff(sample, delimiters=";,\t")
-        except csv.Error: dialect = csv.excel
-        rows = list(csv.reader(f, dialect))
+    if args.csv.lower().endswith((".xlsx", ".xlsm")):
+        import openpyxl
+        def cellval(c):
+            if c is None: return ""
+            if isinstance(c, float) and c.is_integer(): return str(int(c))
+            return str(c)
+        ws = openpyxl.load_workbook(args.csv, read_only=True, data_only=True).active
+        rows = [[cellval(c) for c in r] for r in ws.iter_rows(values_only=True)]
+    else:
+        with open(args.csv, newline='', encoding='utf-8-sig') as f:
+            sample = f.read(4096); f.seek(0)
+            try: dialect = csv.Sniffer().sniff(sample, delimiters=";,\t")
+            except csv.Error: dialect = csv.excel
+            rows = list(csv.reader(f, dialect))
+    rows = [r for r in rows if any(str(c).strip() for c in r)]  # Leerzeilen raus
     header, data = rows[0], rows[1:]
     idx = resolve(header)
     if "nr" not in idx:
@@ -152,8 +171,10 @@ def main():
         except ValueError as ex:
             skipped += 1; continue
         if covered:
-            z, x, y = wgs84_to_utm(lat, lon)
-            if f"{int(x//1000)}_{int(y//1000)}" not in covered:
+            # Zonenbewusst: natürliche UTM-Zone (lon<12 -> 32, sonst 33). Der Manifest-
+            # Key trägt die Zone, daher keine Kollision zwischen UTM32 und UTM33 mehr.
+            zone, x, y = wgs84_to_utm(lat, lon)
+            if f"{zone}_{int(x//1000)}_{int(y//1000)}" not in covered:
                 continue
         s = {"nr": nr, "lat": round(lat, 6), "lon": round(lon, 6)}
         h = cell(r, "h")

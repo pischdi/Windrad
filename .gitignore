@@ -103,3 +103,7 @@ $RECYCLE.BIN/
 # - HTML/CSS
 # - Dokumentation
 # ========================================
+
+# Losspinne-Standortdaten (VERTRAULICH — echte Netzstandorte)
+elevation-api/losspinne_sites.json
+losspinne_sites.json

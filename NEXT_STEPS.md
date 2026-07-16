@@ -33,5 +33,10 @@ Auf R2 liegen nur die **141 Original-Tiles** um die 4 Windräder (UTM33 E456–4
 Endpoints: `/v1/point`, `/v1/profile`, `/v1/line-of-sight`, `/v1/viewshed`, `/docs`, `/demo`, **`/losspinne`**, `/losspinne/sites.json`.
 
 ## Skripte
-- `scripts/sites_from_coords.py` — Koordinaten-CSV → sites.json (der produktive Weg).
+- `scripts/sites_from_coords.py` — Koordinaten-CSV/xlsx → sites.json (der produktive Weg; zonenbewusster Abdeckungsfilter).
 - `scripts/geocode_standorte.py` — Adress-CSV → Geocoding (nur falls mal Adressen ohne Koordinaten; für LoS zu ungenau).
+
+## Roadmap (später)
+- **On-Demand-Höhenverarbeitung aus der Losspinne:** Wird eine Nadel gesetzt und für einen Bereich existieren noch keine Kacheln (API liefert `OUT_OF_COVERAGE`/404), im UI anzeigen „Höhendaten für diesen Bereich noch nicht verarbeitet" + Button „Bereich verarbeiten" → stößt die Tile-Pipeline für die BBOX an, zeigt Fortschritt/Status, informiert bei Problemen.
+  - Voraussetzung: Die Kachel-Erzeugung ist heute ein manuelles Colab-Notebook. Für On-Demand muss sie ein **aufrufbarer Dienst** werden (Worker + Queue / Cloud Run / Job), der eine BBOX verarbeitet und nach R2 lädt; das Frontend pollt Status. Zonen-/Länder-Logik ist bereits vorbereitet (ZONE-Parameter, zonensichere `tile_<zone>_E_N`-Keys).
+  - Datenquelle je Bundesland/Zone siehe [BUNDESLAENDER_HOEHENDATEN.md](BUNDESLAENDER_HOEHENDATEN.md).
