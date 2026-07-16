@@ -949,6 +949,17 @@ const LOSSPINNE_HTML = `<!doctype html>
   .rowflex { display: flex; gap: 8px; }
   .rowflex > div { flex: 1; }
   #sum { font-weight: 600; font-size: 13px; }
+  button.primary { width:100%; padding:9px; margin:8px 0 0; cursor:pointer; background:#0b3b44; color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; }
+  button.primary:disabled { background:#9db4b8; cursor:default; }
+  button.small { padding:3px 8px; font-size:12px; cursor:pointer; border:1px solid #0b3b44; background:#fff; color:#0b3b44; border-radius:5px; }
+  button.small:disabled { opacity:.4; cursor:default; }
+  .prof-head { display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:1000; }
+  #modal.open { display:flex; }
+  #modalBox { background:#fff; border-radius:8px; padding:14px; width:min(94vw,1100px); }
+  #modalBox h3 { margin:0 0 8px; font-size:15px; display:flex; justify-content:space-between; align-items:center; }
+  #bigProfile { width:100%; height:min(62vh,540px); border:1px solid #eee; }
+  #modalClose { cursor:pointer; border:none; background:#0b3b44; color:#fff; border-radius:5px; padding:5px 12px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -977,18 +988,21 @@ const LOSSPINNE_HTML = `<!doctype html>
     <fieldset>
       <legend>Neuer Standort</legend>
       <div id="np" class="hint">Noch nicht gesetzt — auf die Karte klicken.</div>
+      <button id="calc" class="primary" disabled>Losspinne berechnen</button>
       <div id="sum" style="margin-top:6px"></div>
       <div id="lineList" style="margin-top:6px"></div>
     </fieldset>
     <fieldset>
       <legend>Ausgewählte Verbindung</legend>
       <div id="details">Klicke eine Linie (Karte oder Liste) für Details + Geländeprofil.</div>
+      <div class="prof-head"><span class="hint">Geländeprofil</span><button id="enlarge" class="small" disabled>⤢ Vergrößern</button></div>
       <canvas id="profile" width="340" height="180"></canvas>
     </fieldset>
     <button class="reset" id="reset">Zurücksetzen</button>
     <p class="hint">Standorte: © OpenStreetMap-Mitwirkende (ODbL). Höhen: DOM Deutschland (1 m).</p>
   </div>
 </div>
+<div id="modal"><div id="modalBox"><h3><span id="modalTitle">Geländeprofil</span><button id="modalClose">Schließen</button></h3><canvas id="bigProfile"></canvas></div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const map = L.map('map').setView([51.722, 14.478], 12);
@@ -1033,17 +1047,27 @@ fetch('/losspinne/sites.json',{headers:headers()}).then(r=>r.json()).then(s=>{
 
 map.on('click', e=> setNewPoint(e.latlng.lat, e.latlng.lng));
 $('reset').onclick = resetAll;
-$('radius').oninput = ()=>{ $('rLabel').textContent=(parseFloat($('radius').value)).toFixed(1).replace('.',','); if(newPoint) drawRadius(), computeSpider(); };
-$('antH').oninput = ()=>{ if(newPoint) computeSpider(); };
-$('maxN').oninput = ()=>{ if(newPoint) computeSpider(); };
+$('calc').onclick = ()=>{ if(newPoint) computeSpider(); };
+$('enlarge').onclick = openBigProfile;
+$('modalClose').onclick = closeBigProfile;
+$('modal').onclick = (e)=>{ if(e.target===$('modal')) closeBigProfile(); };
+// Radius: nur Kreis/Label aktualisieren (keine Auto-Berechnung). Höhe/max. Linien greifen beim nächsten „Berechnen".
+$('radius').oninput = ()=>{ $('rLabel').textContent=(parseFloat($('radius').value)).toFixed(1).replace('.',','); if(newPoint) drawRadius(); };
 
 function setNewPoint(lat,lon){
   newPoint=[lat,lon];
+  clearLines(); $('sum').innerHTML=''; $('lineList').innerHTML='';
   if(newMarker) map.removeLayer(newMarker);
-  newMarker=L.marker(newPoint).addTo(map).bindTooltip('Neuer Standort',{permanent:true,direction:'top'});
-  $('np').innerHTML='Neuer Standort: <b>'+lat.toFixed(5)+', '+lon.toFixed(5)+'</b>';
-  drawRadius();
-  computeSpider();
+  newMarker=L.marker(newPoint,{draggable:true}).addTo(map).bindTooltip('Neuer Standort (ziehbar)',{permanent:true,direction:'top'});
+  newMarker.on('drag', e=>{ newPoint=[e.latlng.lat,e.latlng.lng]; drawRadius(); });
+  newMarker.on('dragend', updateNpText);
+  drawRadius(); updateNpText();
+  $('calc').disabled=false;
+}
+
+function updateNpText(){
+  $('np').innerHTML='Neuer Standort: <b>'+newPoint[0].toFixed(5)+', '+newPoint[1].toFixed(5)+'</b>'
+    +'<br><span class="hint">Nadel ziehen zum Justieren, Radius/Höhe einstellen — dann <b>Berechnen</b>.</span>';
 }
 
 function drawRadius(){
@@ -1091,6 +1115,7 @@ async function computeSpider(){
     lines.push(line);
   });
   renderSummary();
+  $('calc').textContent='Neu berechnen';
 }
 
 function renderSummary(){
@@ -1122,6 +1147,7 @@ async function selectLine(line){
   if(!los.status){
     $('details').innerHTML='<b>'+nm+':</b> '+(los.error||'keine Höhendaten (außerhalb Abdeckung?)');
     $('profile').getContext('2d').clearRect(0,0,2000,2000);
+    lastProfile=null; $('enlarge').disabled=true;
     return;
   }
   const krit = los.status!=='visible';
@@ -1134,11 +1160,19 @@ async function selectLine(line){
   await drawProfile(newPoint,[s.lat,s.lon],los);
 }
 
-// Geländeschnitt neuer Standort -> Zielstandort, mit Masten + Sichtlinie.
+// Geländeschnitt neuer Standort -> Zielstandort: einmal laden, in Klein- und Groß-Ansicht zeichnen.
+let lastProfile=null;
+
 async function drawProfile(fromArr,toArr,los){
   const r=await fetch('/v1/profile?from='+fromArr.join(',')+'&to='+toArr.join(',')+'&samples=200',{headers:headers()});
-  const d=await r.json(); if(!r.ok) return;
-  const cv=$('profile'), ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,pad=24,n=d.profile.length;
+  const d=await r.json(); if(!r.ok){ lastProfile=null; $('enlarge').disabled=true; return; }
+  lastProfile={data:d, los};
+  drawProfileInto($('profile'), d, los);
+  $('enlarge').disabled=false;
+}
+
+function drawProfileInto(cv, d, los){
+  const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,pad=24,n=d.profile.length;
   ctx.clearRect(0,0,W,H);
   const els=d.profile.map(p=>p.elevation).filter(v=>v!=null);
   const gA=los.observer.groundElevation_m, gB=los.target.groundElevation_m;
@@ -1160,11 +1194,22 @@ async function drawProfile(fromArr,toArr,los){
   ctx.moveTo(sx(0),sy(eye)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke(); ctx.setLineDash([]);
   if(los.blockedAt){ const bi=Math.round(los.blockedAt.distance_m/los.distance_m*(n-1));
     ctx.fillStyle='#d23b3b'; ctx.beginPath(); ctx.arc(sx(bi),sy(los.blockedAt.elevation),4,0,7); ctx.fill(); }
-  ctx.fillStyle='#666'; ctx.font='10px sans-serif'; ctx.textAlign='left';
-  ctx.fillText(Math.round(max)+'m',2,12); ctx.fillText(Math.round(min)+'m',2,H-pad+11);
+  const fs=Math.max(10,Math.round(H/16));
+  ctx.fillStyle='#666'; ctx.font=fs+'px sans-serif'; ctx.textAlign='left';
+  ctx.fillText(Math.round(max)+'m',2,fs+2); ctx.fillText(Math.round(min)+'m',2,H-pad+fs);
   ctx.fillStyle='#2563eb'; ctx.fillText('neu '+Math.round(eye)+'m',sx(0),H-6);
   ctx.fillStyle='#0b8f6a'; ctx.textAlign='right'; ctx.fillText(Math.round(top)+'m',sx(n-1),H-6); ctx.textAlign='left';
 }
+
+function openBigProfile(){
+  if(!lastProfile) return;
+  $('modalTitle').textContent='Geländeprofil'+(selected?(' — '+(selected.site.op||selected.site.id)):'');
+  $('modal').classList.add('open');
+  const cv=$('bigProfile'), rect=cv.getBoundingClientRect();
+  cv.width=Math.max(600,Math.round(rect.width)); cv.height=Math.max(320,Math.round(rect.height));
+  drawProfileInto(cv, lastProfile.data, lastProfile.los);
+}
+function closeBigProfile(){ $('modal').classList.remove('open'); }
 
 function resetAll(){
   clearLines();
@@ -1174,6 +1219,8 @@ function resetAll(){
   $('sum').innerHTML=''; $('lineList').innerHTML='';
   $('details').innerHTML='Klicke eine Linie für Details + Geländeprofil.';
   $('profile').getContext('2d').clearRect(0,0,2000,2000);
+  $('calc').disabled=true; $('calc').textContent='Losspinne berechnen';
+  $('enlarge').disabled=true; lastProfile=null;
 }
 </script>
 </body>
