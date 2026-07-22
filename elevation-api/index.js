@@ -66,6 +66,11 @@ export default {
           headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
         });
       }
+      if (url.pathname === '/gefaelle') {
+        return new Response(GEFAELLE_HTML, {
+          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
       if (url.pathname === '/losspinne') {
         return new Response(LOSSPINNE_HTML, {
           headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
@@ -94,6 +99,9 @@ export default {
         return await handleLineOfSight(url, env);
       }
 
+      if (url.pathname === '/v1/slope') {
+        return await handleSlope(url, env);
+      }
       if (url.pathname === '/v1/viewshed') {
         return await handleViewshed(url, env);
       }
@@ -365,6 +373,101 @@ async function handleViewshed(url, env) {
  * Baut ein Höhenprofil zwischen zwei Punkten (linear in lat/lon interpoliert,
  * Distanz geodätisch). Liefert { profile[], distance } mit distance in Metern.
  */
+/**
+ * GET /v1/slope?bbox=<minLat,minLon,maxLat,maxLon>&window=<m>&limit=<%>&model=<dgm|dom>&step=<m>
+ *
+ * Gefälle-Raster über eine (kleine) Fläche: je Rasterpunkt die stärkste Neigung
+ * über die Basislänge `window` (Zentraldifferenz in X/Y), in Prozent.
+ * Für Aufstellflächen, z.B. MRT: max. 3 % auf 10 m.
+ *
+ * Standardmodell ist **DGM** (Gelände). DOM enthält Bewuchs/Bebauung und ist für
+ * Aufstellflächen irreführend — nur per model=dom erzwingbar.
+ */
+async function handleSlope(url, env) {
+  const raw = url.searchParams.get('bbox');
+  if (!raw) throw apiError('Query param "bbox" required as "minLat,minLon,maxLat,maxLon"', 400, 'BAD_REQUEST');
+  const p = raw.split(',').map((s) => parseFloat(s.trim()));
+  if (p.length !== 4 || p.some((v) => !isFinite(v))) {
+    throw apiError('Invalid "bbox": expected "minLat,minLon,maxLat,maxLon"', 400, 'BAD_REQUEST');
+  }
+  const south = Math.min(p[0], p[2]), north = Math.max(p[0], p[2]);
+  const west = Math.min(p[1], p[3]), east = Math.max(p[1], p[3]);
+  checkLatLon(south, west, 'bbox');
+  checkLatLon(north, east, 'bbox');
+
+  const model = (url.searchParams.get('model') || 'dgm').toLowerCase() === 'dom' ? 'dom' : 'dgm';
+  const windowM = clampNum(url.searchParams.get('window'), 10, 2, 100, 'window');
+  const limitPct = clampNum(url.searchParams.get('limit'), 3, 0.1, 100, 'limit');
+  const step = Math.round(clampNum(url.searchParams.get('step'), 1, 1, 10, 'step'));
+
+  // Kleine Fläche -> Zone aus der Mitte; Ecken nach UTM für das Raster.
+  const zone = wgs84ToUtm((south + north) / 2, (west + east) / 2).zone;
+  const corners = [
+    wgs84ToUtm(south, west), wgs84ToUtm(south, east),
+    wgs84ToUtm(north, west), wgs84ToUtm(north, east),
+  ];
+  const x0 = Math.floor(Math.min(...corners.map((o) => o.x)));
+  const x1 = Math.ceil(Math.max(...corners.map((o) => o.x)));
+  const y0 = Math.floor(Math.min(...corners.map((o) => o.y)));
+  const y1 = Math.ceil(Math.max(...corners.map((o) => o.y)));
+  const cols = Math.floor((x1 - x0) / step) + 1;
+  const rows = Math.floor((y1 - y0) / step) + 1;
+  if (cols * rows > 40000) {
+    throw apiError(`Area too large: ${cols}x${rows} cells (max 40000) — reduce bbox or raise step`, 400, 'AREA_TOO_LARGE');
+  }
+
+  const cache = new Map();
+  const h = windowM / 2;
+  const slope = new Array(cols * rows).fill(null);
+  let ok = 0, over = 0, nodata = 0, maxS = 0, sum = 0;
+
+  for (let r = 0; r < rows; r++) {
+    const y = y0 + r * step;
+    const rowVals = await Promise.all(Array.from({ length: cols }, async (_, cx) => {
+      const x = x0 + cx * step;
+      const [xm, xp, ym, yp] = await Promise.all([
+        cellElevation(zone, Math.round(x - h), Math.round(y), env, cache, model),
+        cellElevation(zone, Math.round(x + h), Math.round(y), env, cache, model),
+        cellElevation(zone, Math.round(x), Math.round(y - h), env, cache, model),
+        cellElevation(zone, Math.round(x), Math.round(y + h), env, cache, model),
+      ]);
+      if (xm === null || xp === null || ym === null || yp === null) return null;
+      const dzdx = (xp - xm) / windowM;
+      const dzdy = (yp - ym) / windowM;
+      return Math.sqrt(dzdx * dzdx + dzdy * dzdy) * 100;
+    }));
+    rowVals.forEach((v, cx) => {
+      if (v === null) { nodata++; return; }
+      slope[r * cols + cx] = round2(v);
+      sum += v; if (v > maxS) maxS = v;
+      if (v <= limitPct) ok++; else over++;
+    });
+  }
+
+  const counted = ok + over;
+  return json({
+    model,
+    window_m: windowM,
+    limit_percent: limitPct,
+    step_m: step,
+    grid: { cols, rows, zone, originUtm: { x: x0, y: y0 }, step_m: step },
+    bounds: { south, west, north, east },
+    slope_percent: slope, // row-major, Zeile 0 = Süden; null = keine Daten
+    stats: {
+      cells: cols * rows,
+      evaluated: counted,
+      nodata,
+      ok_cells: ok,
+      over_limit_cells: over,
+      ok_percent: counted ? round2((ok / counted) * 100) : 0,
+      max_percent: round2(maxS),
+      mean_percent: counted ? round2(sum / counted) : null,
+      suitable: counted > 0 && over === 0,
+    },
+    source: model === 'dgm' ? 'DGM Deutschland (1 m)' : 'DOM Deutschland (1 m)',
+  });
+}
+
 async function buildProfile(from, to, samples, env) {
   const distance = haversine(from.lat, from.lon, to.lat, to.lon);
   const cache = new Map();
@@ -387,15 +490,15 @@ async function buildProfile(from, to, samples, env) {
  * Lädt für jede der 4 umliegenden Gridzellen die passende Kachel (über Cache).
  * Werte von 0 werden als "keine Daten" behandelt.
  */
-async function bilinearElevation(zone, x, y, env, cache) {
+async function bilinearElevation(zone, x, y, env, cache, model = 'dom') {
   const x0 = Math.floor(x), y0 = Math.floor(y);
   const fx = x - x0, fy = y - y0;
 
   const [h00, h10, h01, h11] = await Promise.all([
-    cellElevation(zone, x0,     y0,     env, cache),
-    cellElevation(zone, x0 + 1, y0,     env, cache),
-    cellElevation(zone, x0,     y0 + 1, env, cache),
-    cellElevation(zone, x0 + 1, y0 + 1, env, cache),
+    cellElevation(zone, x0,     y0,     env, cache, model),
+    cellElevation(zone, x0 + 1, y0,     env, cache, model),
+    cellElevation(zone, x0,     y0 + 1, env, cache, model),
+    cellElevation(zone, x0 + 1, y0 + 1, env, cache, model),
   ]);
 
   const corners = [h00, h10, h01, h11].filter((h) => h !== null);
@@ -416,10 +519,10 @@ async function bilinearElevation(zone, x, y, env, cache) {
  * Höhe einer einzelnen Gridzelle (Integer-Meter, EPSG:25833) in Metern,
  * oder null bei nodata / fehlender Kachel.
  */
-async function cellElevation(zone, x, y, env, cache) {
+async function cellElevation(zone, x, y, env, cache, model = 'dom') {
   const tileX = Math.floor(x / TILE_SIZE);
   const tileY = Math.floor(y / TILE_SIZE);
-  const tile = await loadTile(zone, tileX, tileY, env, cache);
+  const tile = await loadTile(zone, tileX, tileY, env, cache, model);
   if (!tile) return null;
 
   const localX = x - tileX * TILE_SIZE;
@@ -439,13 +542,15 @@ async function cellElevation(zone, x, y, env, cache) {
  * gleichzeitige Lookups derselben Kachel (z.B. die 4 bilinearen Ecken)
  * nur einen einzigen Fetch/R2-Get auslösen.
  */
-function loadTile(zone, tileX, tileY, env, cache) {
-  // Primärer Key mit Zonen-Präfix; für Zone 33 zusätzlich der Alt-Key ohne
+function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
+  // Präfix je Modell: DOM (Oberfläche) = tile_, DGM (Gelände) = dgm_.
+  // Primärer Key mit Zonen-Präfix; für DOM/Zone 33 zusätzlich der Alt-Key ohne
   // Präfix (die ursprünglichen Brandenburg-Kacheln liegen als tile_x_y.bin).
-  const key = `tile_${zone}_${tileX}_${tileY}.bin`;
+  const prefix = model === 'dgm' ? 'dgm' : 'tile';
+  const key = `${prefix}_${zone}_${tileX}_${tileY}.bin`;
   if (cache.has(key)) return cache.get(key);
 
-  const candidates = zone === 33
+  const candidates = (model !== 'dgm' && zone === 33)
     ? [key, `tile_${tileX}_${tileY}.bin`]
     : [key];
 
@@ -1221,6 +1326,160 @@ function resetAll(){
   $('profile').getContext('2d').clearRect(0,0,2000,2000);
   $('calc').disabled=true; $('calc').textContent='Losspinne berechnen';
   $('enlarge').disabled=true; lastProfile=null;
+}
+</script>
+</body>
+</html>`;
+
+// =====================================================================
+//  Gefälle-Prüfung für Aufstellflächen (z.B. MRT: max. 3 % auf 10 m).
+//  Fläche per Klick + Maßen aufziehen -> /v1/slope -> Farbraster + Verdikt.
+// =====================================================================
+const GEFAELLE_HTML = `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gefälle-Prüfung — Aufstellflächen</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; color: #1a2433; }
+  header { padding: 10px 16px; background: #0b3b44; color: #fff; }
+  header h1 { font-size: 16px; margin: 0; }
+  header a { color: #9fe4d0; font-size: 13px; text-decoration: none; }
+  #wrap { display: flex; height: calc(100vh - 44px); }
+  #map { flex: 1; }
+  #side { width: 340px; padding: 14px; overflow-y: auto; border-left: 1px solid #ddd; }
+  fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0 0 12px; padding: 8px 10px; }
+  legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+  label { font-size: 13px; display: block; margin: 6px 0 2px; }
+  input, select { width: 100%; padding: 5px; font-size: 13px; }
+  .rowflex { display: flex; gap: 8px; } .rowflex > div { flex: 1; }
+  .hint { font-size: 12px; color: #666; margin: 4px 0; }
+  button.primary { width:100%; padding:9px; margin-top:8px; cursor:pointer; background:#0b3b44; color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; }
+  button.primary:disabled { background:#9db4b8; cursor:default; }
+  .verdict { font-size: 15px; font-weight: 700; padding: 8px; border-radius: 6px; text-align: center; margin-bottom: 8px; }
+  .good { background: #e3f5ea; color: #17683c; } .bad { background: #fde8e8; color: #9b1c1c; }
+  table.stats { width: 100%; font-size: 13px; border-collapse: collapse; }
+  table.stats td { padding: 2px 0; } table.stats td:last-child { text-align: right; font-weight: 600; }
+  .lg { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 3px 0; }
+  .sw { width: 16px; height: 12px; border-radius: 2px; display: inline-block; }
+</style>
+</head>
+<body>
+<header><h1>Gefälle-Prüfung — Aufstellflächen &nbsp;·&nbsp; <a href="/losspinne">Losspinne</a> &nbsp;<a href="/docs">API-Doku</a></h1></header>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="side">
+    <p class="hint"><b>Klick auf die Karte</b> setzt die Fläche (Maße unten). Dann <b>Prüfen</b>. Bewertet wird die stärkste Neigung über die Basislänge — grün = innerhalb der Grenze.</p>
+    <fieldset>
+      <legend>Fläche</legend>
+      <div class="rowflex">
+        <div><label>Breite (m)</label><input id="w" type="number" value="20" min="2" step="1"/></div>
+        <div><label>Länge (m)</label><input id="l" type="number" value="40" min="2" step="1"/></div>
+      </div>
+      <div class="rowflex">
+        <div><label>Basislänge (m)</label><input id="win" type="number" value="10" min="2" step="1"/></div>
+        <div><label>Grenze (%)</label><input id="lim" type="number" value="3" min="0.1" step="0.1"/></div>
+      </div>
+      <label>Höhenmodell</label>
+      <select id="model">
+        <option value="dgm" selected>DGM — Gelände (korrekt für Aufstellflächen)</option>
+        <option value="dom">DOM — Oberfläche (inkl. Bewuchs/Bebauung)</option>
+      </select>
+      <label>API-Key (optional)</label>
+      <input id="apiKey" type="text" placeholder="leer = anonym (30/min)"/>
+      <button id="calc" class="primary" disabled>Gefälle prüfen</button>
+    </fieldset>
+    <fieldset>
+      <legend>Ergebnis</legend>
+      <div id="out"><span class="hint">Noch keine Fläche geprüft.</span></div>
+    </fieldset>
+    <fieldset>
+      <legend>Legende</legend>
+      <div class="lg"><span class="sw" style="background:#2e9e5b"></span> innerhalb der Grenze</div>
+      <div class="lg"><span class="sw" style="background:#e08e00"></span> bis 2× Grenze</div>
+      <div class="lg"><span class="sw" style="background:#d23b3b"></span> darüber</div>
+      <div class="lg"><span class="sw" style="background:#999"></span> keine Höhendaten</div>
+    </fieldset>
+    <p class="hint">Höhen: DGM/DOM Deutschland (1 m). Bewertung = Zentraldifferenz über die Basislänge.</p>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([51.7133, 14.4667], 17);
+L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+  { attribution: '© OpenStreetMap, © OpenTopoMap', maxZoom: 19, maxNativeZoom: 17 }).addTo(map);
+const $ = (id)=>document.getElementById(id);
+function headers(){ const k=$('apiKey').value.trim(); return k?{'X-API-Key':k}:{}; }
+function num(id,d){ const v=parseFloat($(id).value); return isFinite(v)?v:d; }
+
+let center=null, rect=null, overlay=null;
+
+map.on('click', e=>{ center=[e.latlng.lat,e.latlng.lng]; drawRect(); $('calc').disabled=false; });
+['w','l'].forEach(id=> $(id).oninput = ()=>{ if(center) drawRect(); });
+$('calc').onclick = check;
+
+function halfDeg(){
+  const w=num('w',20), l=num('l',40);
+  return [ (l/2)/111320, (w/2)/(111320*Math.cos(center[0]*Math.PI/180)) ];
+}
+function bnds(){ const [hLat,hLon]=halfDeg();
+  return [[center[0]-hLat,center[1]-hLon],[center[0]+hLat,center[1]+hLon]]; }
+function drawRect(){
+  if(rect) map.removeLayer(rect);
+  rect=L.rectangle(bnds(),{color:'#0b3b44',weight:2,fill:false}).addTo(map);
+}
+
+async function check(){
+  const b=bnds(), win=num('win',10), lim=num('lim',3), model=$('model').value;
+  $('out').innerHTML='<span class="hint">… wird berechnet</span>';
+  const q='bbox='+b[0][0]+','+b[0][1]+','+b[1][0]+','+b[1][1]
+        +'&window='+win+'&limit='+lim+'&model='+model;
+  try{
+    const r=await fetch('/v1/slope?'+q,{headers:headers()});
+    const d=await r.json();
+    if(!r.ok){ $('out').innerHTML='<b>Fehler:</b> '+(d.error||('HTTP '+r.status))
+        +(d.code==='OUT_OF_COVERAGE'||d.error&&d.error.indexOf('coverage')>=0?'<br><span class="hint">Für dieses Gebiet sind noch keine '+model.toUpperCase()+'-Kacheln verarbeitet.</span>':''); return; }
+    renderOverlay(d); renderStats(d);
+  }catch(e){ $('out').textContent='Netzwerkfehler'; }
+}
+
+function renderOverlay(d){
+  const cols=d.grid.cols, rows=d.grid.rows, lim=d.limit_percent;
+  const cv=document.createElement('canvas'); cv.width=cols; cv.height=rows;
+  const ctx=cv.getContext('2d'), img=ctx.createImageData(cols,rows);
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const v=d.slope_percent[r*cols+c];
+      const px=((rows-1-r)*cols+c)*4;   // Grid Zeile0=Süden, Bild Zeile0=Norden
+      let col;
+      if(v===null) col=[153,153,153,120];
+      else if(v<=lim) col=[46,158,91,150];
+      else if(v<=lim*2) col=[224,142,0,150];
+      else col=[210,59,59,165];
+      img.data[px]=col[0]; img.data[px+1]=col[1]; img.data[px+2]=col[2]; img.data[px+3]=col[3];
+    }
+  }
+  ctx.putImageData(img,0,0);
+  if(overlay) map.removeLayer(overlay);
+  overlay=L.imageOverlay(cv.toDataURL(),[[d.bounds.south,d.bounds.west],[d.bounds.north,d.bounds.east]],{opacity:.85}).addTo(map);
+}
+
+function renderStats(d){
+  const s=d.stats, ok=s.suitable;
+  $('out').innerHTML =
+    '<div class="verdict '+(ok?'good':'bad')+'">'+(ok?'✓ Fläche geeignet':'✗ nicht durchgehend geeignet')+'</div>'
+    +'<table class="stats">'
+    +'<tr><td>innerhalb '+d.limit_percent+' % / '+d.window_m+' m</td><td>'+s.ok_percent+' %</td></tr>'
+    +'<tr><td>max. Gefälle</td><td>'+s.max_percent+' %</td></tr>'
+    +'<tr><td>mittleres Gefälle</td><td>'+(s.mean_percent===null?'—':s.mean_percent+' %')+'</td></tr>'
+    +'<tr><td>Zellen über Grenze</td><td>'+s.over_limit_cells+' / '+s.evaluated+'</td></tr>'
+    +(s.nodata?'<tr><td>ohne Höhendaten</td><td>'+s.nodata+'</td></tr>':'')
+    +'<tr><td>Raster</td><td>'+d.grid.cols+'×'+d.grid.rows+' @ '+d.step_m+' m</td></tr>'
+    +'<tr><td>Modell</td><td>'+d.model.toUpperCase()+'</td></tr>'
+    +'</table>';
 }
 </script>
 </body>
