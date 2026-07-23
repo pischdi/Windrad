@@ -229,6 +229,14 @@ async function handleLineOfSight(url, env) {
   const obs = parseCoordWithHeight(url.searchParams.get('observer'), 'observer', EYE_HEIGHT);
   const tgt = parseCoordWithHeight(url.searchParams.get('target'), 'target', 0);
   const samples = parseSamples(url.searchParams.get('samples'));
+  // Erdkrümmung + Refraktion: effektiver Erdradius k*R (k=4/3 = Standardatmosphäre).
+  // Der "Erdbauch" zwischen den Endpunkten wird aufs Gelände addiert — Standard
+  // der Funkstreckenplanung. Ohne das sind Strecken >10 km deutlich zu optimistisch.
+  const kFactor = clampNum(url.searchParams.get('k'), 4 / 3, 0.5, 5, 'k');
+  const rEff = 6371000 * kFactor;
+  // Optional: Fresnelzonen-Prüfung (Richtfunk braucht Freiheit, nicht nur Sicht).
+  const freqRaw = url.searchParams.get('freq');
+  const freqGhz = freqRaw ? clampNum(freqRaw, 6, 0.1, 100, 'freq') : null;
 
   const { profile, distance } = await buildProfile(obs, tgt, samples, env);
 
@@ -251,8 +259,39 @@ async function handleLineOfSight(url, env) {
   for (let i = 1; i < profile.length - 1; i++) {
     const terrain = profile[i].elevation;
     if (terrain === null) continue;
-    const s = (terrain - eyeElevation) / profile[i].distance_m;
+    const d1 = profile[i].distance_m, d2 = distance - d1;
+    // Erdbauch an dieser Stelle: d1*d2/(2*k*R)
+    const bulge = (d1 * d2) / (2 * rEff);
+    const s = (terrain + bulge - eyeElevation) / d1;
     if (s > maxSlope) { maxSlope = s; blockPoint = profile[i]; }
+  }
+
+  // Fresnelzone: engste Stelle relativ zum 1. Fresnelradius (60 % = übliche Grenze).
+  let fresnel = null;
+  if (freqGhz) {
+    const lambda = 0.299792458 / freqGhz; // m
+    let worst = Infinity, worstAt = null, worstR = 0;
+    for (let i = 1; i < profile.length - 1; i++) {
+      const terrain = profile[i].elevation;
+      if (terrain === null) continue;
+      const d1 = profile[i].distance_m, d2 = distance - d1;
+      if (d1 <= 0 || d2 <= 0) continue;
+      const bulge = (d1 * d2) / (2 * rEff);
+      const losH = eyeElevation + (targetTop - eyeElevation) * (d1 / distance);
+      const r1 = Math.sqrt((lambda * d1 * d2) / distance);
+      const ratio = r1 > 0 ? (losH - (terrain + bulge)) / r1 : Infinity;
+      if (ratio < worst) { worst = ratio; worstAt = profile[i]; worstR = r1; }
+    }
+    fresnel = {
+      freq_ghz: freqGhz,
+      firstZoneRadius_m: round2(worstR),
+      worstClearanceRatio: worst === Infinity ? null : round2(worst),
+      clear60: worst >= 0.6,
+      worstAt: worstAt ? {
+        lat: round6(worstAt.lat), lon: round6(worstAt.lon),
+        distance_m: round2(worstAt.distance_m),
+      } : null,
+    };
   }
 
   // Höhe (ü.NN) auf der Ziel-Säule, bis zu der verdeckt ist.
@@ -298,6 +337,12 @@ async function handleLineOfSight(url, env) {
     },
     distance_m: round2(distance),
     samples,
+    earth: {
+      kFactor: round2(kFactor),
+      effectiveRadius_m: Math.round(rEff),
+      maxBulge_m: round2((distance * distance) / (8 * rEff)), // Scheitel in Streckenmitte
+    },
+    fresnel, // null, wenn kein freq-Parameter übergeben wurde
     source: 'DOM Deutschland (1 m)',
   });
 }
@@ -1076,7 +1121,7 @@ const LOSSPINNE_HTML = `<!doctype html>
     <fieldset>
       <legend>Parameter</legend>
       <label>Suchradius: <span id="rLabel">10,0</span> km</label>
-      <input id="radius" type="range" min="0.5" max="20" step="0.5" value="10"/>
+      <input id="radius" type="range" min="0.5" max="40" step="0.5" value="10"/>
       <div class="rowflex">
         <div>
           <label>Antennenhöhe (m)</label>
@@ -1085,6 +1130,16 @@ const LOSSPINNE_HTML = `<!doctype html>
         <div>
           <label>max. Linien</label>
           <input id="maxN" type="number" value="25" step="1"/>
+        </div>
+      </div>
+      <div class="rowflex">
+        <div>
+          <label>Frequenz (GHz)</label>
+          <input id="freq" type="number" value="6" step="0.5" min="0.1"/>
+        </div>
+        <div>
+          <label>k-Faktor (Refraktion)</label>
+          <input id="kfac" type="number" value="1.33" step="0.01" min="0.5"/>
         </div>
       </div>
       <label>API-Key (optional, für viele Linien)</label>
@@ -1205,7 +1260,8 @@ async function computeSpider(){
     const tH=o.s.h||aH;
     const t1=o.s.lat+','+o.s.lon+','+tH;
     try{
-      const r=await fetch('/v1/line-of-sight?observer='+o1+'&target='+t1+'&samples=200',{headers:headers()});
+      const extra='&freq='+(parseFloat($('freq').value)||6)+'&k='+(parseFloat($('kfac').value)||1.333);
+      const r=await fetch('/v1/line-of-sight?observer='+o1+'&target='+t1+'&samples=200'+extra,{headers:headers()});
       const d=await r.json();
       return {site:o.s, dist:o.dist, los: r.ok?d:{status:undefined,error:d.error||('HTTP '+r.status)}};
     }catch(e){ return {site:o.s, dist:o.dist, los:{status:undefined,error:'Netzwerk'}}; }
@@ -1261,7 +1317,13 @@ async function selectLine(line){
     +'<span class="badge '+statusClass(los.status)+'">'+(krit?'KRITISCH':'FREI')+'</span> '
     +'<b>'+los.visiblePercent+'%</b> der Gegenantenne sichtbar<br>'
     +'Distanz: '+(los.distance_m/1000).toFixed(2)+' km'
-    +(los.blockedAt?('<br>Verdeckung bei '+Math.round(los.blockedAt.distance_m)+' m'):'');
+    +(los.earth?(' · Erdbauch '+los.earth.maxBulge_m+' m'):'')
+    +(los.blockedAt?('<br>Verdeckung bei '+Math.round(los.blockedAt.distance_m)+' m'):'')
+    +(los.fresnel?('<br>Fresnel '+los.fresnel.freq_ghz+' GHz: '
+        +'<span class="badge '+(los.fresnel.clear60?'frei':'krit')+'">'
+        +(los.fresnel.clear60?'≥60 % frei':'unter 60 %')+'</span>'
+        +' (engste Stelle '+(los.fresnel.worstClearanceRatio===null?'—':Math.round(los.fresnel.worstClearanceRatio*100)+' %')
+        +', r₁='+los.fresnel.firstZoneRadius_m+' m)'):'');
   await drawProfile(newPoint,[s.lat,s.lon],los);
 }
 
@@ -1279,13 +1341,40 @@ async function drawProfile(fromArr,toArr,los){
 function drawProfileInto(cv, d, los){
   const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,pad=24,n=d.profile.length;
   ctx.clearRect(0,0,W,H);
-  const els=d.profile.map(p=>p.elevation).filter(v=>v!=null);
+  const dist=los.distance_m;
+  const rEff=(los.earth&&los.earth.effectiveRadius_m)||(6371000*4/3);
   const gA=los.observer.groundElevation_m, gB=los.target.groundElevation_m;
   const eye=los.observer.eyeElevation_m, top=los.target.topElevation_m;
-  const min=Math.min(...els), max=Math.max(top,...els), rng=(max-min)||1;
+  // Gelände inkl. Erdbauch (Funkstrecken-Darstellung: gekrümmte Erde)
+  const terr=[];
+  for(let i=0;i<n;i++){
+    const v=d.profile[i].elevation, d1=d.profile[i].distance_m, d2=dist-d1;
+    terr.push(v==null?null:v+(d1*d2)/(2*rEff));
+  }
+  const known=terr.filter(v=>v!=null);
+  const fq=los.fresnel&&los.fresnel.freq_ghz;
+  const lam=fq?0.299792458/fq:0;
+  const losH=i=>eye+(top-eye)*(d.profile[i].distance_m/dist);
+  const r1=i=>{ const d1=d.profile[i].distance_m,d2=dist-d1;
+    return (d1>0&&d2>0)?Math.sqrt(lam*d1*d2/dist):0; };
+  let min=Math.min(...known,eye,top), max=Math.max(...known,eye,top);
+  if(fq){ for(let i=0;i<n;i++){ const u=losH(i)+r1(i), l=losH(i)-r1(i);
+    if(u>max)max=u; if(l<min)min=l; } }
+  const rng=(max-min)||1;
   const sx=i=>pad+i/(n-1)*(W-2*pad);
   const sy=v=>H-pad-(v-min)/rng*(H-2*pad);
-  const valAt=i=>d.profile[i].elevation==null?min:d.profile[i].elevation;
+  const valAt=i=>terr[i]==null?min:terr[i];
+  // 1. Fresnelzone als Band um die Sichtlinie + 60-%-Grenze (gestrichelt)
+  if(fq){
+    ctx.beginPath(); ctx.moveTo(sx(0),sy(losH(0)+r1(0)));
+    for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(losH(i)+r1(i)));
+    for(let i=n-1;i>=0;i--) ctx.lineTo(sx(i),sy(losH(i)-r1(i)));
+    ctx.closePath(); ctx.fillStyle='rgba(37,99,235,.10)'; ctx.fill();
+    ctx.strokeStyle='rgba(37,99,235,.5)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(sx(0),sy(losH(0)-0.6*r1(0)));
+    for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(losH(i)-0.6*r1(i)));
+    ctx.stroke(); ctx.setLineDash([]);
+  }
   ctx.beginPath(); ctx.moveTo(sx(0),sy(valAt(0)));
   for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(valAt(i)));
   ctx.lineTo(sx(n-1),H-pad); ctx.lineTo(sx(0),H-pad); ctx.closePath();
@@ -1297,13 +1386,18 @@ function drawProfileInto(cv, d, los){
   ctx.strokeStyle='#0b8f6a'; ctx.beginPath(); ctx.moveTo(sx(n-1),sy(gB)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke();
   ctx.strokeStyle=colorFor(los.status); ctx.lineWidth=1.5; ctx.setLineDash([5,4]); ctx.beginPath();
   ctx.moveTo(sx(0),sy(eye)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke(); ctx.setLineDash([]);
-  if(los.blockedAt){ const bi=Math.round(los.blockedAt.distance_m/los.distance_m*(n-1));
-    ctx.fillStyle='#d23b3b'; ctx.beginPath(); ctx.arc(sx(bi),sy(los.blockedAt.elevation),4,0,7); ctx.fill(); }
+  if(los.blockedAt){ const bi=Math.round(los.blockedAt.distance_m/dist*(n-1));
+    ctx.fillStyle='#d23b3b'; ctx.beginPath(); ctx.arc(sx(bi),sy(valAt(bi)),4,0,7); ctx.fill(); }
   const fs=Math.max(10,Math.round(H/16));
   ctx.fillStyle='#666'; ctx.font=fs+'px sans-serif'; ctx.textAlign='left';
   ctx.fillText(Math.round(max)+'m',2,fs+2); ctx.fillText(Math.round(min)+'m',2,H-pad+fs);
   ctx.fillStyle='#2563eb'; ctx.fillText('neu '+Math.round(eye)+'m',sx(0),H-6);
   ctx.fillStyle='#0b8f6a'; ctx.textAlign='right'; ctx.fillText(Math.round(top)+'m',sx(n-1),H-6); ctx.textAlign='left';
+  if(fq){
+    ctx.fillStyle='rgba(37,99,235,.9)'; ctx.textAlign='center';
+    ctx.fillText('1. Fresnelzone '+fq+' GHz — gestrichelt = 60 % (Erdkrümmung k='+((los.earth&&los.earth.kFactor)||1.33)+' eingerechnet)', W/2, fs+2);
+    ctx.textAlign='left';
+  }
 }
 
 function openBigProfile(){
