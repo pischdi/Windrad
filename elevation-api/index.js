@@ -102,6 +102,9 @@ export default {
       if (url.pathname === '/v1/slope') {
         return await handleSlope(url, env);
       }
+      if (url.pathname === '/v1/ensure') {
+        return await handleEnsure(request, env);
+      }
       if (url.pathname === '/v1/viewshed') {
         return await handleViewshed(url, env);
       }
@@ -428,6 +431,34 @@ async function handleViewshed(url, env) {
  * Standardmodell ist **DGM** (Gelände). DOM enthält Bewuchs/Bebauung und ist für
  * Aufstellflächen irreführend — nur per model=dom erzwingbar.
  */
+/**
+ * POST /v1/ensure — Proxy auf den Cloud-Run-Dienst, der fehlende Höhen-Kacheln
+ * für ein kleines Gebiet on-demand holt. Body wird 1:1 durchgereicht:
+ *   { area: {center:[lat,lon], radius_km}|{bbox:[s,w,n,e]}, models?: [...]|"auto" }
+ * Der API-Key bleibt serverseitig (Worker-Secret ENSURE_API_KEY); der Browser
+ * ruft nur diese gleich-origin Route. ENSURE_URL kommt aus der Worker-Config.
+ */
+async function handleEnsure(request, env) {
+  if (request.method !== 'POST') throw apiError('POST required', 405, 'METHOD_NOT_ALLOWED');
+  if (!env.ENSURE_URL) throw apiError('Ensure-Dienst nicht konfiguriert (ENSURE_URL fehlt)', 503, 'ENSURE_UNCONFIGURED');
+  const body = await request.text();
+  let resp;
+  try {
+    resp = await fetch(env.ENSURE_URL.replace(/\/+$/, '') + '/ensure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': env.ENSURE_API_KEY || '' },
+      body: body || '{}',
+    });
+  } catch (e) {
+    throw apiError('Ensure-Dienst nicht erreichbar: ' + e.message, 502, 'ENSURE_UNREACHABLE');
+  }
+  const text = await resp.text();
+  return new Response(text, {
+    status: resp.status,
+    headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' },
+  });
+}
+
 async function handleSlope(url, env) {
   const raw = url.searchParams.get('bbox');
   if (!raw) throw apiError('Query param "bbox" required as "minLat,minLon,maxLat,maxLon"', 400, 'BAD_REQUEST');
@@ -1151,6 +1182,7 @@ const LOSSPINNE_HTML = `<!doctype html>
       <button id="calc" class="primary" disabled>Losspinne berechnen</button>
       <div id="sum" style="margin-top:6px"></div>
       <div id="lineList" style="margin-top:6px"></div>
+      <div id="ensureBox" style="margin-top:6px"></div>
     </fieldset>
     <fieldset>
       <legend>Ausgewählte Verbindung</legend>
@@ -1297,6 +1329,32 @@ function renderSummary(){
     row.onclick=()=>selectLine(l);
     box.appendChild(row);
   });
+  maybeShowEnsure();
+}
+
+// Zeigt einen Button, wenn Verbindungen ohne Höhendaten dabei sind.
+function maybeShowEnsure(){
+  const box=$('ensureBox'); if(!box) return;
+  const gaps=lines.filter(l=>!l.los.status).length;
+  if(gaps>0 && newPoint){
+    box.innerHTML='<div class="hint">'+gaps+' Verbindung(en) ohne Höhendaten in diesem Gebiet.</div>'
+      +'<button id="ensureBtn" class="small">⤓ Fehlende Höhendaten holen</button>';
+    $('ensureBtn').onclick=runEnsure;
+  } else box.innerHTML='';
+}
+
+async function runEnsure(){
+  const b=$('ensureBtn'); if(!b) return;
+  b.disabled=true; b.textContent='… wird verarbeitet (kann 1–2 Min dauern)';
+  try{
+    const r=await fetch('/v1/ensure',{method:'POST',headers:{'Content-Type':'application/json',...headers()},
+      body:JSON.stringify({area:{center:newPoint,radius_km:parseFloat($('radius').value)||5}})});
+    const d=await r.json();
+    if(!r.ok||d.error){ b.disabled=false; b.textContent='⤓ Nochmal versuchen';
+      $('ensureBox').insertAdjacentHTML('beforeend','<div class="hint">'+(d.error||('HTTP '+r.status))+'</div>'); return; }
+    if(d.note){ $('ensureBox').innerHTML='<div class="hint">'+d.note+'</div>'; return; }
+    await computeSpider();   // neu rechnen — Lücken sollten weg sein
+  }catch(e){ b.disabled=false; b.textContent='⤓ Nochmal versuchen'; }
 }
 
 async function selectLine(line){
@@ -1415,7 +1473,7 @@ function resetAll(){
   if(newMarker) map.removeLayer(newMarker); newMarker=null; newPoint=null;
   if(radiusCircle) map.removeLayer(radiusCircle); radiusCircle=null;
   $('np').innerHTML='<span class="hint">'+SITES.length+' Standorte geladen. Auf die Karte klicken.</span>';
-  $('sum').innerHTML=''; $('lineList').innerHTML='';
+  $('sum').innerHTML=''; $('lineList').innerHTML=''; $('ensureBox').innerHTML='';
   $('details').innerHTML='Klicke eine Linie für Details + Geländeprofil.';
   $('profile').getContext('2d').clearRect(0,0,2000,2000);
   $('calc').disabled=true; $('calc').textContent='Losspinne berechnen';
@@ -1574,6 +1632,25 @@ function renderStats(d){
     +'<tr><td>Raster</td><td>'+d.grid.cols+'×'+d.grid.rows+' @ '+d.step_m+' m</td></tr>'
     +'<tr><td>Modell</td><td>'+d.model.toUpperCase()+'</td></tr>'
     +'</table>';
+  if(s.nodata>0){
+    $('out').insertAdjacentHTML('beforeend',
+      '<div class="hint" style="margin-top:6px">'+s.nodata+' Zellen ohne Höhendaten in diesem Gebiet.</div>'
+      +'<button id="ensureG" class="primary" style="margin-top:4px">⤓ Höhendaten für dieses Gebiet holen</button>');
+    $('ensureG').onclick=runEnsureG;
+  }
+}
+
+async function runEnsureG(){
+  const b=$('ensureG'); if(!b||!center) return;
+  b.disabled=true; b.textContent='… wird verarbeitet (kann 1–2 Min dauern)';
+  try{
+    const r=await fetch('/v1/ensure',{method:'POST',headers:{'Content-Type':'application/json',...headers()},
+      body:JSON.stringify({area:{center:center,radius_km:1}})});
+    const d=await r.json();
+    if(!r.ok||d.error){ b.disabled=false; b.textContent='⤓ Nochmal versuchen'; return; }
+    if(d.note){ b.textContent=d.note; return; }
+    await check();   // neu prüfen — Höhendaten sollten jetzt da sein
+  }catch(e){ b.disabled=false; b.textContent='⤓ Nochmal versuchen'; }
 }
 </script>
 </body>

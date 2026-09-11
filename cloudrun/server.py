@@ -32,6 +32,29 @@ def s3():
     return _s3
 
 
+_listing_cache = {}
+
+
+def _tiles_cached(preset):
+    if preset not in _listing_cache:
+        _listing_cache[preset] = tp.list_all_tiles(preset)
+    return _listing_cache[preset]
+
+
+def _auto_presets(area, bbox):
+    """Presets, deren Portal Kacheln im Gebiet hat (z. B. NRW-Punkt -> NRW_DOM+DGM)."""
+    hits = []
+    for preset, p in tp.PRESETS.items():
+        bb = tuple(bbox) if bbox else tp.bbox_km(area, p['zone'])
+        if not bb:
+            continue
+        x0, x1, y0, y1 = bb
+        files = _tiles_cached(preset)
+        if any(x0 <= x <= x1 and y0 <= y <= y1 for (x, y) in files):
+            hits.append(preset)
+    return hits
+
+
 @app.get('/health')
 def health():
     return 'ok'
@@ -42,9 +65,19 @@ def ensure():
     if API_KEY and request.headers.get('X-Api-Key') != API_KEY:
         return jsonify({'error': 'unauthorized'}), 401
     body = request.get_json(force=True, silent=True) or {}
-    models = body.get('models') or ['NRW_DOM', 'NRW_DGM']
+    models = body.get('models')
     area = body.get('area')
     bbox = body.get('bbox')
+
+    # models weglassen oder "auto" -> passende Presets automatisch bestimmen
+    # (jene, deren Portal Kacheln im Gebiet hat). So genügt dem Frontend das Gebiet.
+    if not models or models == 'auto':
+        models = _auto_presets(area, bbox)
+        if not models:
+            return jsonify({'ok': True, 'result': {},
+                            'note': 'Für dieses Gebiet ist (noch) keine Datenquelle/Preset hinterlegt.'}), 200
+    elif isinstance(models, str):
+        models = [models]
 
     # 1) Gesamtzahl der zu holenden Kacheln vorab prüfen (Schutz).
     plan = {}

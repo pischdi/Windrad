@@ -107,3 +107,7 @@ $RECYCLE.BIN/
 # Losspinne-Standortdaten (VERTRAULICH — echte Netzstandorte)
 elevation-api/losspinne_sites.json
 losspinne_sites.json
+
+# Worker-Dev-Secrets (ENSURE_URL/KEY)
+.dev.vars
+elevation-api/.dev.vars
