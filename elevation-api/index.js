@@ -19,6 +19,10 @@
  * konfiguriert, fällt der Worker auf die öffentliche R2-URL zurück.
  */
 
+// Losspinne-Standorte (OSM, ODbL) — Positionsquelle für /losspinne.
+// POC: gebündelt aus JSON; produktiv später aus privatem Store (R2-Binding).
+import LOSSPINNE_SITES from './losspinne_sites.json';
+
 const VERSION = '1.0.0-mvp';
 const TILE_SIZE = 1000;          // Meter pro Kachelkante = Gridzellen pro Kante
 const PUBLIC_R2 = 'https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev';
@@ -62,6 +66,22 @@ export default {
           headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
         });
       }
+      if (url.pathname === '/gefaelle') {
+        return new Response(GEFAELLE_HTML, {
+          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+      if (url.pathname === '/losspinne') {
+        return new Response(LOSSPINNE_HTML, {
+          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+      if (url.pathname === '/losspinne/sites.json') {
+        return new Response(JSON.stringify(LOSSPINNE_SITES), {
+          headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8',
+                     'Cache-Control': 'no-cache' },
+        });
+      }
 
       // Auth + Rate-Limit für alle Datenendpunkte.
       const gate = await authAndRateLimit(request, env);
@@ -79,6 +99,12 @@ export default {
         return await handleLineOfSight(url, env);
       }
 
+      if (url.pathname === '/v1/slope') {
+        return await handleSlope(url, env);
+      }
+      if (url.pathname === '/v1/ensure') {
+        return await handleEnsure(request, env);
+      }
       if (url.pathname === '/v1/viewshed') {
         return await handleViewshed(url, env);
       }
@@ -151,9 +177,9 @@ async function handlePoint(url, env) {
   }
   checkLatLon(lat, lon, 'lat/lon');
 
-  const { x, y } = wgs84ToUtm33(lat, lon);
+  const { zone, x, y } = wgs84ToUtm(lat, lon);
   const cache = new Map();
-  const elevation = await bilinearElevation(x, y, env, cache);
+  const elevation = await bilinearElevation(zone, x, y, env, cache);
 
   if (elevation === null) {
     throw apiError('No elevation data for these coordinates (outside covered tiles)', 404, 'OUT_OF_COVERAGE');
@@ -164,7 +190,7 @@ async function handlePoint(url, env) {
     lon,
     elevation: Math.round(elevation * 100) / 100,
     unit: 'm',
-    source: 'DGM Brandenburg (ALS)',
+    source: 'DOM Deutschland (1 m)',
     resolution_m: 1,
   });
 }
@@ -185,7 +211,7 @@ async function handleProfile(url, env) {
     distance_m: round2(distance),
     samples,
     unit: 'm',
-    source: 'DGM Brandenburg (ALS)',
+    source: 'DOM Deutschland (1 m)',
     profile: profile.map((p) => ({
       lat: round6(p.lat),
       lon: round6(p.lon),
@@ -206,6 +232,14 @@ async function handleLineOfSight(url, env) {
   const obs = parseCoordWithHeight(url.searchParams.get('observer'), 'observer', EYE_HEIGHT);
   const tgt = parseCoordWithHeight(url.searchParams.get('target'), 'target', 0);
   const samples = parseSamples(url.searchParams.get('samples'));
+  // Erdkrümmung + Refraktion: effektiver Erdradius k*R (k=4/3 = Standardatmosphäre).
+  // Der "Erdbauch" zwischen den Endpunkten wird aufs Gelände addiert — Standard
+  // der Funkstreckenplanung. Ohne das sind Strecken >10 km deutlich zu optimistisch.
+  const kFactor = clampNum(url.searchParams.get('k'), 4 / 3, 0.5, 5, 'k');
+  const rEff = 6371000 * kFactor;
+  // Optional: Fresnelzonen-Prüfung (Richtfunk braucht Freiheit, nicht nur Sicht).
+  const freqRaw = url.searchParams.get('freq');
+  const freqGhz = freqRaw ? clampNum(freqRaw, 6, 0.1, 100, 'freq') : null;
 
   const { profile, distance } = await buildProfile(obs, tgt, samples, env);
 
@@ -228,8 +262,39 @@ async function handleLineOfSight(url, env) {
   for (let i = 1; i < profile.length - 1; i++) {
     const terrain = profile[i].elevation;
     if (terrain === null) continue;
-    const s = (terrain - eyeElevation) / profile[i].distance_m;
+    const d1 = profile[i].distance_m, d2 = distance - d1;
+    // Erdbauch an dieser Stelle: d1*d2/(2*k*R)
+    const bulge = (d1 * d2) / (2 * rEff);
+    const s = (terrain + bulge - eyeElevation) / d1;
     if (s > maxSlope) { maxSlope = s; blockPoint = profile[i]; }
+  }
+
+  // Fresnelzone: engste Stelle relativ zum 1. Fresnelradius (60 % = übliche Grenze).
+  let fresnel = null;
+  if (freqGhz) {
+    const lambda = 0.299792458 / freqGhz; // m
+    let worst = Infinity, worstAt = null, worstR = 0;
+    for (let i = 1; i < profile.length - 1; i++) {
+      const terrain = profile[i].elevation;
+      if (terrain === null) continue;
+      const d1 = profile[i].distance_m, d2 = distance - d1;
+      if (d1 <= 0 || d2 <= 0) continue;
+      const bulge = (d1 * d2) / (2 * rEff);
+      const losH = eyeElevation + (targetTop - eyeElevation) * (d1 / distance);
+      const r1 = Math.sqrt((lambda * d1 * d2) / distance);
+      const ratio = r1 > 0 ? (losH - (terrain + bulge)) / r1 : Infinity;
+      if (ratio < worst) { worst = ratio; worstAt = profile[i]; worstR = r1; }
+    }
+    fresnel = {
+      freq_ghz: freqGhz,
+      firstZoneRadius_m: round2(worstR),
+      worstClearanceRatio: worst === Infinity ? null : round2(worst),
+      clear60: worst >= 0.6,
+      worstAt: worstAt ? {
+        lat: round6(worstAt.lat), lon: round6(worstAt.lon),
+        distance_m: round2(worstAt.distance_m),
+      } : null,
+    };
   }
 
   // Höhe (ü.NN) auf der Ziel-Säule, bis zu der verdeckt ist.
@@ -275,7 +340,13 @@ async function handleLineOfSight(url, env) {
     },
     distance_m: round2(distance),
     samples,
-    source: 'DGM Brandenburg (ALS)',
+    earth: {
+      kFactor: round2(kFactor),
+      effectiveRadius_m: Math.round(rEff),
+      maxBulge_m: round2((distance * distance) / (8 * rEff)), // Scheitel in Streckenmitte
+    },
+    fresnel, // null, wenn kein freq-Parameter übergeben wurde
+    source: 'DOM Deutschland (1 m)',
   });
 }
 
@@ -300,8 +371,8 @@ async function handleViewshed(url, env) {
   }
 
   const cache = new Map();
-  const { x, y } = wgs84ToUtm33(obs.lat, obs.lon);
-  const ground = await bilinearElevation(x, y, env, cache);
+  const { zone, x, y } = wgs84ToUtm(obs.lat, obs.lon);
+  const ground = await bilinearElevation(zone, x, y, env, cache);
   if (ground === null) {
     throw apiError('Observer has no elevation data (outside coverage)', 404, 'OUT_OF_COVERAGE');
   }
@@ -316,8 +387,8 @@ async function handleViewshed(url, env) {
 
     for (let d = step; d <= radius; d += step) {
       const p = destPoint(obs.lat, obs.lon, bearing, d);
-      const u = wgs84ToUtm33(p.lat, p.lon);
-      const terr = await bilinearElevation(u.x, u.y, env, cache);
+      const u = wgs84ToUtm(p.lat, p.lon);
+      const terr = await bilinearElevation(u.zone, u.x, u.y, env, cache);
 
       let isVisible = false;
       if (terr !== null) {
@@ -342,7 +413,7 @@ async function handleViewshed(url, env) {
     observer: { lat: obs.lat, lon: obs.lon, groundElevation_m: round2(ground), height_m: obs.h, eyeElevation_m: round2(eye) },
     radius_m: radius, rays, step_m: step, targetHeight_m: targetHeight,
     directions,
-    source: 'DGM Brandenburg (ALS)',
+    source: 'DOM Deutschland (1 m)',
   });
 }
 
@@ -350,6 +421,129 @@ async function handleViewshed(url, env) {
  * Baut ein Höhenprofil zwischen zwei Punkten (linear in lat/lon interpoliert,
  * Distanz geodätisch). Liefert { profile[], distance } mit distance in Metern.
  */
+/**
+ * GET /v1/slope?bbox=<minLat,minLon,maxLat,maxLon>&window=<m>&limit=<%>&model=<dgm|dom>&step=<m>
+ *
+ * Gefälle-Raster über eine (kleine) Fläche: je Rasterpunkt die stärkste Neigung
+ * über die Basislänge `window` (Zentraldifferenz in X/Y), in Prozent.
+ * Für Aufstellflächen, z.B. MRT: max. 3 % auf 10 m.
+ *
+ * Standardmodell ist **DGM** (Gelände). DOM enthält Bewuchs/Bebauung und ist für
+ * Aufstellflächen irreführend — nur per model=dom erzwingbar.
+ */
+/**
+ * POST /v1/ensure — Proxy auf den Cloud-Run-Dienst, der fehlende Höhen-Kacheln
+ * für ein kleines Gebiet on-demand holt. Body wird 1:1 durchgereicht:
+ *   { area: {center:[lat,lon], radius_km}|{bbox:[s,w,n,e]}, models?: [...]|"auto" }
+ * Der API-Key bleibt serverseitig (Worker-Secret ENSURE_API_KEY); der Browser
+ * ruft nur diese gleich-origin Route. ENSURE_URL kommt aus der Worker-Config.
+ */
+async function handleEnsure(request, env) {
+  if (request.method !== 'POST') throw apiError('POST required', 405, 'METHOD_NOT_ALLOWED');
+  if (!env.ENSURE_URL) throw apiError('Ensure-Dienst nicht konfiguriert (ENSURE_URL fehlt)', 503, 'ENSURE_UNCONFIGURED');
+  const body = await request.text();
+  let resp;
+  try {
+    resp = await fetch(env.ENSURE_URL.replace(/\/+$/, '') + '/ensure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': env.ENSURE_API_KEY || '' },
+      body: body || '{}',
+    });
+  } catch (e) {
+    throw apiError('Ensure-Dienst nicht erreichbar: ' + e.message, 502, 'ENSURE_UNREACHABLE');
+  }
+  const text = await resp.text();
+  return new Response(text, {
+    status: resp.status,
+    headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' },
+  });
+}
+
+async function handleSlope(url, env) {
+  const raw = url.searchParams.get('bbox');
+  if (!raw) throw apiError('Query param "bbox" required as "minLat,minLon,maxLat,maxLon"', 400, 'BAD_REQUEST');
+  const p = raw.split(',').map((s) => parseFloat(s.trim()));
+  if (p.length !== 4 || p.some((v) => !isFinite(v))) {
+    throw apiError('Invalid "bbox": expected "minLat,minLon,maxLat,maxLon"', 400, 'BAD_REQUEST');
+  }
+  const south = Math.min(p[0], p[2]), north = Math.max(p[0], p[2]);
+  const west = Math.min(p[1], p[3]), east = Math.max(p[1], p[3]);
+  checkLatLon(south, west, 'bbox');
+  checkLatLon(north, east, 'bbox');
+
+  const model = (url.searchParams.get('model') || 'dgm').toLowerCase() === 'dom' ? 'dom' : 'dgm';
+  const windowM = clampNum(url.searchParams.get('window'), 10, 2, 100, 'window');
+  const limitPct = clampNum(url.searchParams.get('limit'), 3, 0.1, 100, 'limit');
+  const step = Math.round(clampNum(url.searchParams.get('step'), 1, 1, 10, 'step'));
+
+  // Kleine Fläche -> Zone aus der Mitte; Ecken nach UTM für das Raster.
+  const zone = wgs84ToUtm((south + north) / 2, (west + east) / 2).zone;
+  const corners = [
+    wgs84ToUtm(south, west), wgs84ToUtm(south, east),
+    wgs84ToUtm(north, west), wgs84ToUtm(north, east),
+  ];
+  const x0 = Math.floor(Math.min(...corners.map((o) => o.x)));
+  const x1 = Math.ceil(Math.max(...corners.map((o) => o.x)));
+  const y0 = Math.floor(Math.min(...corners.map((o) => o.y)));
+  const y1 = Math.ceil(Math.max(...corners.map((o) => o.y)));
+  const cols = Math.floor((x1 - x0) / step) + 1;
+  const rows = Math.floor((y1 - y0) / step) + 1;
+  if (cols * rows > 40000) {
+    throw apiError(`Area too large: ${cols}x${rows} cells (max 40000) — reduce bbox or raise step`, 400, 'AREA_TOO_LARGE');
+  }
+
+  const cache = new Map();
+  const h = windowM / 2;
+  const slope = new Array(cols * rows).fill(null);
+  let ok = 0, over = 0, nodata = 0, maxS = 0, sum = 0;
+
+  for (let r = 0; r < rows; r++) {
+    const y = y0 + r * step;
+    const rowVals = await Promise.all(Array.from({ length: cols }, async (_, cx) => {
+      const x = x0 + cx * step;
+      const [xm, xp, ym, yp] = await Promise.all([
+        cellElevation(zone, Math.round(x - h), Math.round(y), env, cache, model),
+        cellElevation(zone, Math.round(x + h), Math.round(y), env, cache, model),
+        cellElevation(zone, Math.round(x), Math.round(y - h), env, cache, model),
+        cellElevation(zone, Math.round(x), Math.round(y + h), env, cache, model),
+      ]);
+      if (xm === null || xp === null || ym === null || yp === null) return null;
+      const dzdx = (xp - xm) / windowM;
+      const dzdy = (yp - ym) / windowM;
+      return Math.sqrt(dzdx * dzdx + dzdy * dzdy) * 100;
+    }));
+    rowVals.forEach((v, cx) => {
+      if (v === null) { nodata++; return; }
+      slope[r * cols + cx] = round2(v);
+      sum += v; if (v > maxS) maxS = v;
+      if (v <= limitPct) ok++; else over++;
+    });
+  }
+
+  const counted = ok + over;
+  return json({
+    model,
+    window_m: windowM,
+    limit_percent: limitPct,
+    step_m: step,
+    grid: { cols, rows, zone, originUtm: { x: x0, y: y0 }, step_m: step },
+    bounds: { south, west, north, east },
+    slope_percent: slope, // row-major, Zeile 0 = Süden; null = keine Daten
+    stats: {
+      cells: cols * rows,
+      evaluated: counted,
+      nodata,
+      ok_cells: ok,
+      over_limit_cells: over,
+      ok_percent: counted ? round2((ok / counted) * 100) : 0,
+      max_percent: round2(maxS),
+      mean_percent: counted ? round2(sum / counted) : null,
+      suitable: counted > 0 && over === 0,
+    },
+    source: model === 'dgm' ? 'DGM Deutschland (1 m)' : 'DOM Deutschland (1 m)',
+  });
+}
+
 async function buildProfile(from, to, samples, env) {
   const distance = haversine(from.lat, from.lon, to.lat, to.lon);
   const cache = new Map();
@@ -359,8 +553,8 @@ async function buildProfile(from, to, samples, env) {
     const t = samples === 1 ? 0 : i / (samples - 1);
     const lat = from.lat + (to.lat - from.lat) * t;
     const lon = from.lon + (to.lon - from.lon) * t;
-    const { x, y } = wgs84ToUtm33(lat, lon);
-    const elevation = await bilinearElevation(x, y, env, cache);
+    const { zone, x, y } = wgs84ToUtm(lat, lon);
+    const elevation = await bilinearElevation(zone, x, y, env, cache);
     profile.push({ lat, lon, distance_m: distance * t, elevation });
   }
 
@@ -372,15 +566,15 @@ async function buildProfile(from, to, samples, env) {
  * Lädt für jede der 4 umliegenden Gridzellen die passende Kachel (über Cache).
  * Werte von 0 werden als "keine Daten" behandelt.
  */
-async function bilinearElevation(x, y, env, cache) {
+async function bilinearElevation(zone, x, y, env, cache, model = 'dom') {
   const x0 = Math.floor(x), y0 = Math.floor(y);
   const fx = x - x0, fy = y - y0;
 
   const [h00, h10, h01, h11] = await Promise.all([
-    cellElevation(x0,     y0,     env, cache),
-    cellElevation(x0 + 1, y0,     env, cache),
-    cellElevation(x0,     y0 + 1, env, cache),
-    cellElevation(x0 + 1, y0 + 1, env, cache),
+    cellElevation(zone, x0,     y0,     env, cache, model),
+    cellElevation(zone, x0 + 1, y0,     env, cache, model),
+    cellElevation(zone, x0,     y0 + 1, env, cache, model),
+    cellElevation(zone, x0 + 1, y0 + 1, env, cache, model),
   ]);
 
   const corners = [h00, h10, h01, h11].filter((h) => h !== null);
@@ -401,10 +595,10 @@ async function bilinearElevation(x, y, env, cache) {
  * Höhe einer einzelnen Gridzelle (Integer-Meter, EPSG:25833) in Metern,
  * oder null bei nodata / fehlender Kachel.
  */
-async function cellElevation(x, y, env, cache) {
+async function cellElevation(zone, x, y, env, cache, model = 'dom') {
   const tileX = Math.floor(x / TILE_SIZE);
   const tileY = Math.floor(y / TILE_SIZE);
-  const tile = await loadTile(tileX, tileY, env, cache);
+  const tile = await loadTile(zone, tileX, tileY, env, cache, model);
   if (!tile) return null;
 
   const localX = x - tileX * TILE_SIZE;
@@ -424,31 +618,40 @@ async function cellElevation(x, y, env, cache) {
  * gleichzeitige Lookups derselben Kachel (z.B. die 4 bilinearen Ecken)
  * nur einen einzigen Fetch/R2-Get auslösen.
  */
-function loadTile(tileX, tileY, env, cache) {
-  const key = `tile_${tileX}_${tileY}.bin`;
+function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
+  // Präfix je Modell: DOM (Oberfläche) = tile_, DGM (Gelände) = dgm_.
+  // Primärer Key mit Zonen-Präfix; für DOM/Zone 33 zusätzlich der Alt-Key ohne
+  // Präfix (die ursprünglichen Brandenburg-Kacheln liegen als tile_x_y.bin).
+  const prefix = model === 'dgm' ? 'dgm' : 'tile';
+  const key = `${prefix}_${zone}_${tileX}_${tileY}.bin`;
   if (cache.has(key)) return cache.get(key);
 
+  const candidates = (model !== 'dgm' && zone === 33)
+    ? [key, `tile_${tileX}_${tileY}.bin`]
+    : [key];
+
   const promise = (async () => {
-    let buffer = null;
+    for (const k of candidates) {
+      let buffer = null;
 
-    // 1) Bevorzugt: R2-Binding
-    if (env && env.TILES) {
-      const obj = await env.TILES.get(key);
-      if (obj) buffer = await obj.arrayBuffer();
+      // 1) Bevorzugt: R2-Binding
+      if (env && env.TILES) {
+        const obj = await env.TILES.get(k);
+        if (obj) buffer = await obj.arrayBuffer();
+      }
+      // 2) Fallback: öffentliche R2-URL
+      if (!buffer) {
+        const resp = await fetch(`${PUBLIC_R2}/${k}`);
+        if (resp.ok) buffer = await resp.arrayBuffer();
+      }
+      if (!buffer) continue;
+
+      if (buffer.byteLength !== TILE_SIZE * TILE_SIZE * 2) {
+        throw apiError(`Invalid tile size for ${k}: ${buffer.byteLength} bytes`, 500, 'BAD_TILE');
+      }
+      return new Uint16Array(buffer);
     }
-
-    // 2) Fallback: öffentliche R2-URL
-    if (!buffer) {
-      const resp = await fetch(`${PUBLIC_R2}/${key}`);
-      if (resp.ok) buffer = await resp.arrayBuffer();
-    }
-
-    if (!buffer) return null;
-
-    if (buffer.byteLength !== TILE_SIZE * TILE_SIZE * 2) {
-      throw apiError(`Invalid tile size for ${key}: ${buffer.byteLength} bytes`, 500, 'BAD_TILE');
-    }
-    return new Uint16Array(buffer);
+    return null;
   })();
 
   cache.set(key, promise);
@@ -456,20 +659,22 @@ function loadTile(tileX, tileY, env, cache) {
 }
 
 /**
- * WGS84 (lat/lon) → ETRS89/UTM Zone 33N (EPSG:25833).
+ * WGS84 (lat/lon) → ETRS89/UTM, Zone 32N (EPSG:25832) oder 33N (EPSG:25833).
  *
- * Vollständige Transverse-Mercator-Vorwärtsformel (Snyder) inkl.
- * Meridianbogen M. Die in der Frontend-App genutzte Näherung
- * (y = k0·N·φ) ließ M weg und lieferte einen um ~37 km falschen
- * Northing — daher hier die korrekte Variante. Verifiziert gegen alle
- * vier bekannten Windrad-Kacheln (Northing/Easting + plausible Höhen).
+ * Deutschland-Konvention: UTM32 westlich von 12°E, UTM33 östlich davon.
+ * Liefert { zone, x, y }, damit Kacheln pro Zone (unterschiedliches Gitter)
+ * korrekt adressiert werden. Vollständige Transverse-Mercator-Vorwärtsformel
+ * (Snyder) inkl. Meridianbogen M; verifiziert gegen die Brandenburg-Kacheln.
  */
-function wgs84ToUtm33(lat, lon) {
+function wgs84ToUtm(lat, lon) {
+  const zone = lon < 12 ? 32 : 33;
+  const lon0deg = zone === 32 ? 9 : 15;   // Mittelmeridian der Zone
+
   const a = 6378137.0;                 // WGS84 große Halbachse
   const f = 1 / 298.257223563;         // Abplattung
   const e2 = f * (2 - f);              // erste Exzentrizität²
   const k0 = 0.9996;                   // Maßstabsfaktor
-  const lon0 = (15 * Math.PI) / 180;   // Mittelmeridian Zone 33N
+  const lon0 = (lon0deg * Math.PI) / 180;
 
   const phi = (lat * Math.PI) / 180;
   const lam = (lon * Math.PI) / 180;
@@ -498,7 +703,7 @@ function wgs84ToUtm33(lat, lon) {
     )
   );
 
-  return { x, y };
+  return { zone, x, y };
 }
 
 // ---- OpenAPI + Docs ----
@@ -880,6 +1085,572 @@ async function drawProfile(los){
   ctx.fillText(Math.round(max)+'m',2,12); ctx.fillText(Math.round(min)+'m',2,H-pad+11);
   ctx.fillStyle='#2563eb'; ctx.fillText('A '+Math.round(eye)+'m',sx(0),H-6);
   ctx.fillStyle='#0b8f6a'; ctx.textAlign='right'; ctx.fillText(Math.round(top)+'m B',sx(n-1),H-6); ctx.textAlign='left';
+}
+</script>
+</body>
+</html>`;
+
+// =====================================================================
+//  Losspinne — LoS-/Richtfunk-Planung zwischen Standorten (POC).
+//  Nutzer setzt einen Punkt -> nahe Standorte im Radius werden gesucht ->
+//  je Standort eine Sichtlinie (grün frei / orange+rot kritisch) ->
+//  Klick auf Linie -> DOM-Oberflächenprofil zwischen den Standorten.
+//  Standorte: OSM (ODbL) via /losspinne/sites.json. Same-origin zu /v1/*.
+// =====================================================================
+const LOSSPINNE_HTML = `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Losspinne — Sichtverbindungs-Planung</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; color: #1a2433; }
+  header { padding: 10px 16px; background: #0b3b44; color: #fff; }
+  header h1 { font-size: 16px; margin: 0; }
+  header a { color: #9fe4d0; font-size: 13px; text-decoration: none; }
+  #wrap { display: flex; height: calc(100vh - 44px); }
+  #map { flex: 1; }
+  #side { width: 370px; padding: 14px; overflow-y: auto; border-left: 1px solid #ddd; }
+  fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0 0 12px; padding: 8px 10px; }
+  legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+  label { font-size: 13px; display: block; margin: 6px 0 2px; }
+  input[type=number], input[type=text] { width: 100%; padding: 5px; font-size: 13px; }
+  input[type=range] { width: 100%; }
+  .hint { font-size: 12px; color: #666; margin: 4px 0; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; color: #fff; font-weight: 600; font-size: 12px; }
+  .frei { background: #2e9e5b; } .teil { background: #e08e00; } .krit { background: #d23b3b; } .err { background: #888; }
+  .line-item { cursor: pointer; padding: 3px 5px; border-radius: 4px; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+  .line-item:hover { background: #f2f7f6; }
+  .line-item.sel { background: #dcefe9; }
+  #details { font-size: 13px; line-height: 1.5; }
+  canvas { width: 100%; height: 170px; border: 1px solid #eee; margin-top: 8px; }
+  button.reset { width: 100%; padding: 7px; margin-top: 6px; cursor: pointer; }
+  .rowflex { display: flex; gap: 8px; }
+  .rowflex > div { flex: 1; }
+  #sum { font-weight: 600; font-size: 13px; }
+  button.primary { width:100%; padding:9px; margin:8px 0 0; cursor:pointer; background:#0b3b44; color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; }
+  button.primary:disabled { background:#9db4b8; cursor:default; }
+  button.small { padding:3px 8px; font-size:12px; cursor:pointer; border:1px solid #0b3b44; background:#fff; color:#0b3b44; border-radius:5px; }
+  button.small:disabled { opacity:.4; cursor:default; }
+  .prof-head { display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:1000; }
+  #modal.open { display:flex; }
+  #modalBox { background:#fff; border-radius:8px; padding:14px; width:min(94vw,1100px); }
+  #modalBox h3 { margin:0 0 8px; font-size:15px; display:flex; justify-content:space-between; align-items:center; }
+  #bigProfile { width:100%; height:min(62vh,540px); border:1px solid #eee; }
+  #modalClose { cursor:pointer; border:none; background:#0b3b44; color:#fff; border-radius:5px; padding:5px 12px; font-size:13px; }
+</style>
+</head>
+<body>
+<header><h1>Losspinne — Sichtverbindungs-Planung &nbsp;·&nbsp; <a href="/demo">Demo</a> &nbsp;<a href="/docs">API-Doku</a></h1></header>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="side">
+    <p class="hint"><b>Klick auf die Karte</b> = neuer Standort. Zu jedem bestehenden Standort im Radius wird eine Sichtlinie berechnet: <span class="badge frei">frei</span> ungehindert, <span class="badge teil">teilw.</span> / <span class="badge krit">kritisch</span> verdeckt. Klick auf eine Linie zeigt das Geländeprofil.</p>
+    <fieldset>
+      <legend>Parameter</legend>
+      <label>Suchradius: <span id="rLabel">10,0</span> km</label>
+      <input id="radius" type="range" min="0.5" max="40" step="0.5" value="10"/>
+      <div class="rowflex">
+        <div>
+          <label>Antennenhöhe (m)</label>
+          <input id="antH" type="number" value="30" step="1"/>
+        </div>
+        <div>
+          <label>max. Linien</label>
+          <input id="maxN" type="number" value="25" step="1"/>
+        </div>
+      </div>
+      <div class="rowflex">
+        <div>
+          <label>Frequenz (GHz)</label>
+          <input id="freq" type="number" value="6" step="0.5" min="0.1"/>
+        </div>
+        <div>
+          <label>k-Faktor (Refraktion)</label>
+          <input id="kfac" type="number" value="1.33" step="0.01" min="0.5"/>
+        </div>
+      </div>
+      <label>API-Key (optional, für viele Linien)</label>
+      <input id="apiKey" type="text" placeholder="leer = anonym (30/min)"/>
+    </fieldset>
+    <fieldset>
+      <legend>Neuer Standort</legend>
+      <div id="np" class="hint">Noch nicht gesetzt — auf die Karte klicken.</div>
+      <button id="calc" class="primary" disabled>Losspinne berechnen</button>
+      <div id="sum" style="margin-top:6px"></div>
+      <div id="lineList" style="margin-top:6px"></div>
+      <div id="ensureBox" style="margin-top:6px"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Ausgewählte Verbindung</legend>
+      <div id="details">Klicke eine Linie (Karte oder Liste) für Details + Geländeprofil.</div>
+      <div class="prof-head"><span class="hint">Geländeprofil</span><button id="enlarge" class="small" disabled>⤢ Vergrößern</button></div>
+      <canvas id="profile" width="340" height="180"></canvas>
+    </fieldset>
+    <button class="reset" id="reset">Zurücksetzen</button>
+    <p class="hint">Standorte: © OpenStreetMap-Mitwirkende (ODbL). Höhen: DOM Deutschland (1 m).</p>
+  </div>
+</div>
+<div id="modal"><div id="modalBox"><h3><span id="modalTitle">Geländeprofil</span><button id="modalClose">Schließen</button></h3><canvas id="bigProfile"></canvas></div></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([51.722, 14.478], 12);
+L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+  { attribution: '© OpenStreetMap, © OpenTopoMap', maxZoom: 17 }).addTo(map);
+
+const $ = (id) => document.getElementById(id);
+function headers(){ const k=$('apiKey').value.trim(); return k?{'X-API-Key':k}:{}; }
+function antH(){ const v=parseFloat($('antH').value); return isFinite(v)?v:30; }
+function radiusM(){ return (parseFloat($('radius').value)||5)*1000; }
+function maxN(){ const v=parseInt($('maxN').value,10); return isFinite(v)&&v>0?v:25; }
+function statusClass(s){ return s==='visible'?'frei':s==='partial'?'teil':s==='blocked'?'krit':'err'; }
+function statusLabel(s){ return s==='visible'?'frei':s==='partial'?'teilw.':s==='blocked'?'kritisch':'Fehler'; }
+function colorFor(s){ return s==='visible'?'#2e9e5b':s==='partial'?'#e08e00':s==='blocked'?'#d23b3b':'#888'; }
+
+// Haversine-Distanz (m)
+function distM(aLat,aLon,bLat,bLon){
+  const R=6371000, p=Math.PI/180;
+  const dLat=(bLat-aLat)*p, dLon=(bLon-aLon)*p;
+  const x=Math.sin(dLat/2)**2 + Math.cos(aLat*p)*Math.cos(bLat*p)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+
+let SITES=[], siteMarkers=[];
+let newPoint=null, newMarker=null, radiusCircle=null;
+let lines=[];          // {site, dist, pl, los}
+let selected=null;
+let computeSeq=0;      // gegen Race bei schnellem Radius-Schieben
+
+// Standorte laden
+fetch('/losspinne/sites.json',{headers:headers()}).then(r=>r.json()).then(s=>{
+  SITES=s;
+  SITES.forEach(t=>{
+    const m=L.circleMarker([t.lat,t.lon],{radius:5,color:'#fff',weight:1.5,fillColor:'#0b3b44',fillOpacity:.9})
+      .addTo(map).bindTooltip('Funkstandort '+t.id+(t.op?(' · '+t.op):'')+(t.h?(' · '+t.h+' m'):''));
+    siteMarkers.push(m);
+  });
+  $('np').innerHTML='<span class="hint">'+SITES.length+' Funkstandorte geladen. Auf die Karte klicken.</span>';
+  // Karte auf alle Standorte einpassen, damit nichts am Rand verschwindet.
+  if(SITES.length){ map.fitBounds(SITES.map(t=>[t.lat,t.lon]), {padding:[40,40]}); }
+});
+
+map.on('click', e=> setNewPoint(e.latlng.lat, e.latlng.lng));
+$('reset').onclick = resetAll;
+$('calc').onclick = ()=>{ if(newPoint) computeSpider(); };
+$('enlarge').onclick = openBigProfile;
+$('modalClose').onclick = closeBigProfile;
+$('modal').onclick = (e)=>{ if(e.target===$('modal')) closeBigProfile(); };
+// Radius: nur Kreis/Label aktualisieren (keine Auto-Berechnung). Höhe/max. Linien greifen beim nächsten „Berechnen".
+$('radius').oninput = ()=>{ $('rLabel').textContent=(parseFloat($('radius').value)).toFixed(1).replace('.',','); if(newPoint) drawRadius(); };
+
+function setNewPoint(lat,lon){
+  newPoint=[lat,lon];
+  clearLines(); $('sum').innerHTML=''; $('lineList').innerHTML='';
+  if(newMarker) map.removeLayer(newMarker);
+  newMarker=L.marker(newPoint,{draggable:true}).addTo(map).bindTooltip('Neuer Standort (ziehbar)',{permanent:true,direction:'top'});
+  newMarker.on('drag', e=>{ newPoint=[e.latlng.lat,e.latlng.lng]; drawRadius(); });
+  newMarker.on('dragend', updateNpText);
+  drawRadius(); updateNpText();
+  $('calc').disabled=false;
+}
+
+function updateNpText(){
+  $('np').innerHTML='Neuer Standort: <b>'+newPoint[0].toFixed(5)+', '+newPoint[1].toFixed(5)+'</b>'
+    +'<br><span class="hint">Nadel ziehen zum Justieren, Radius/Höhe einstellen — dann <b>Berechnen</b>.</span>';
+}
+
+function drawRadius(){
+  if(radiusCircle) map.removeLayer(radiusCircle);
+  radiusCircle=L.circle(newPoint,{radius:radiusM(),color:'#0b3b44',weight:1,fill:false,dashArray:'5,6'}).addTo(map);
+}
+
+function clearLines(){ lines.forEach(l=>map.removeLayer(l.pl)); lines=[]; selected=null; }
+
+// kleiner Concurrency-Pool, um Rate-Limit-Bursts zu vermeiden
+async function pool(items, worker, size){
+  const res=new Array(items.length); let i=0;
+  async function run(){ while(i<items.length){ const idx=i++; res[idx]=await worker(items[idx],idx); } }
+  await Promise.all(Array.from({length:Math.min(size,items.length)}, run));
+  return res;
+}
+
+async function computeSpider(){
+  const seq=++computeSeq;
+  clearLines();
+  const R=radiusM(), aH=antH();
+  const near=SITES
+    .map(s=>({s, dist:distM(newPoint[0],newPoint[1],s.lat,s.lon)}))
+    .filter(o=>o.dist<=R && o.dist>1)
+    .sort((a,b)=>a.dist-b.dist);
+  const capped=near.slice(0,maxN());
+  $('sum').innerHTML='… berechne '+capped.length+' Verbindung(en)'+(near.length>capped.length?(' (von '+near.length+', begrenzt)'):'');
+  const results=await pool(capped, async (o)=>{
+    const o1=newPoint[0]+','+newPoint[1]+','+aH;
+    const tH=o.s.h||aH;
+    const t1=o.s.lat+','+o.s.lon+','+tH;
+    try{
+      const extra='&freq='+(parseFloat($('freq').value)||6)+'&k='+(parseFloat($('kfac').value)||1.333);
+      const r=await fetch('/v1/line-of-sight?observer='+o1+'&target='+t1+'&samples=200'+extra,{headers:headers()});
+      const d=await r.json();
+      return {site:o.s, dist:o.dist, los: r.ok?d:{status:undefined,error:d.error||('HTTP '+r.status)}};
+    }catch(e){ return {site:o.s, dist:o.dist, los:{status:undefined,error:'Netzwerk'}}; }
+  }, 5);
+  if(seq!==computeSeq) return; // veraltet
+  results.forEach(res=>{
+    const col=colorFor(res.los.status);
+    const pl=L.polyline([newPoint,[res.site.lat,res.site.lon]],
+      {color:col,weight:3,opacity:.8,dashArray:res.los.status?null:'5,5'}).addTo(map);
+    const line={site:res.site, dist:res.dist, pl, los:res.los};
+    pl.on('click',()=>selectLine(line));
+    lines.push(line);
+  });
+  renderSummary();
+  $('calc').textContent='Neu berechnen';
+}
+
+function renderSummary(){
+  const c={frei:0,teil:0,krit:0,err:0};
+  lines.forEach(l=>{ const s=l.los.status; c[s==='visible'?'frei':s==='partial'?'teil':s==='blocked'?'krit':'err']++; });
+  $('sum').innerHTML='<span class="badge frei">'+c.frei+' frei</span> '
+    +'<span class="badge teil">'+c.teil+' teilw.</span> '
+    +'<span class="badge krit">'+c.krit+' kritisch</span>'
+    +(c.err?' <span class="badge err">'+c.err+'</span>':'');
+  const box=$('lineList'); box.innerHTML='';
+  lines.forEach(l=>{
+    const row=document.createElement('div'); row.className='line-item';
+    if(selected&&selected.pl===l.pl) row.classList.add('sel');
+    const nm=l.site.op || l.site.id;
+    const pct=l.los.status?(' '+l.los.visiblePercent+'%'):'';
+    row.innerHTML='<span>'+nm+' · '+(l.dist/1000).toFixed(1)+' km</span>'
+      +'<span class="badge '+statusClass(l.los.status)+'">'+statusLabel(l.los.status)+pct+'</span>';
+    row.onclick=()=>selectLine(l);
+    box.appendChild(row);
+  });
+  maybeShowEnsure();
+}
+
+// Zeigt einen Button, wenn Verbindungen ohne Höhendaten dabei sind.
+function maybeShowEnsure(){
+  const box=$('ensureBox'); if(!box) return;
+  const gaps=lines.filter(l=>!l.los.status).length;
+  if(gaps>0 && newPoint){
+    box.innerHTML='<div class="hint">'+gaps+' Verbindung(en) ohne Höhendaten in diesem Gebiet.</div>'
+      +'<button id="ensureBtn" class="small">⤓ Fehlende Höhendaten holen</button>';
+    $('ensureBtn').onclick=runEnsure;
+  } else box.innerHTML='';
+}
+
+async function runEnsure(){
+  const b=$('ensureBtn'); if(!b) return;
+  b.disabled=true; b.textContent='… wird verarbeitet (kann 1–2 Min dauern)';
+  try{
+    const r=await fetch('/v1/ensure',{method:'POST',headers:{'Content-Type':'application/json',...headers()},
+      body:JSON.stringify({area:{center:newPoint,radius_km:parseFloat($('radius').value)||5}})});
+    const d=await r.json();
+    if(!r.ok||d.error){ b.disabled=false; b.textContent='⤓ Nochmal versuchen';
+      $('ensureBox').insertAdjacentHTML('beforeend','<div class="hint">'+(d.error||('HTTP '+r.status))+'</div>'); return; }
+    if(d.note){ $('ensureBox').innerHTML='<div class="hint">'+d.note+'</div>'; return; }
+    await computeSpider();   // neu rechnen — Lücken sollten weg sein
+  }catch(e){ b.disabled=false; b.textContent='⤓ Nochmal versuchen'; }
+}
+
+async function selectLine(line){
+  if(selected&&selected.pl) selected.pl.setStyle({weight:3});
+  selected=line; line.pl.setStyle({weight:6});
+  renderSummary();
+  const los=line.los, s=line.site;
+  const nm=s.op||s.id;
+  if(!los.status){
+    $('details').innerHTML='<b>'+nm+':</b> '+(los.error||'keine Höhendaten (außerhalb Abdeckung?)');
+    $('profile').getContext('2d').clearRect(0,0,2000,2000);
+    lastProfile=null; $('enlarge').disabled=true;
+    return;
+  }
+  const krit = los.status!=='visible';
+  $('details').innerHTML=
+    'Neuer Standort → <b>'+nm+'</b>'+(s.h?(' (Mast '+s.h+' m)'):'')+'<br>'
+    +'<span class="badge '+statusClass(los.status)+'">'+(krit?'KRITISCH':'FREI')+'</span> '
+    +'<b>'+los.visiblePercent+'%</b> der Gegenantenne sichtbar<br>'
+    +'Distanz: '+(los.distance_m/1000).toFixed(2)+' km'
+    +(los.earth?(' · Erdbauch '+los.earth.maxBulge_m+' m'):'')
+    +(los.blockedAt?('<br>Verdeckung bei '+Math.round(los.blockedAt.distance_m)+' m'):'')
+    +(los.fresnel?('<br>Fresnel '+los.fresnel.freq_ghz+' GHz: '
+        +'<span class="badge '+(los.fresnel.clear60?'frei':'krit')+'">'
+        +(los.fresnel.clear60?'≥60 % frei':'unter 60 %')+'</span>'
+        +' (engste Stelle '+(los.fresnel.worstClearanceRatio===null?'—':Math.round(los.fresnel.worstClearanceRatio*100)+' %')
+        +', r₁='+los.fresnel.firstZoneRadius_m+' m)'):'');
+  await drawProfile(newPoint,[s.lat,s.lon],los);
+}
+
+// Geländeschnitt neuer Standort -> Zielstandort: einmal laden, in Klein- und Groß-Ansicht zeichnen.
+let lastProfile=null;
+
+async function drawProfile(fromArr,toArr,los){
+  const r=await fetch('/v1/profile?from='+fromArr.join(',')+'&to='+toArr.join(',')+'&samples=200',{headers:headers()});
+  const d=await r.json(); if(!r.ok){ lastProfile=null; $('enlarge').disabled=true; return; }
+  lastProfile={data:d, los};
+  drawProfileInto($('profile'), d, los);
+  $('enlarge').disabled=false;
+}
+
+function drawProfileInto(cv, d, los){
+  const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height,pad=24,n=d.profile.length;
+  ctx.clearRect(0,0,W,H);
+  const dist=los.distance_m;
+  const rEff=(los.earth&&los.earth.effectiveRadius_m)||(6371000*4/3);
+  const gA=los.observer.groundElevation_m, gB=los.target.groundElevation_m;
+  const eye=los.observer.eyeElevation_m, top=los.target.topElevation_m;
+  // Gelände inkl. Erdbauch (Funkstrecken-Darstellung: gekrümmte Erde)
+  const terr=[];
+  for(let i=0;i<n;i++){
+    const v=d.profile[i].elevation, d1=d.profile[i].distance_m, d2=dist-d1;
+    terr.push(v==null?null:v+(d1*d2)/(2*rEff));
+  }
+  const known=terr.filter(v=>v!=null);
+  const fq=los.fresnel&&los.fresnel.freq_ghz;
+  const lam=fq?0.299792458/fq:0;
+  const losH=i=>eye+(top-eye)*(d.profile[i].distance_m/dist);
+  const r1=i=>{ const d1=d.profile[i].distance_m,d2=dist-d1;
+    return (d1>0&&d2>0)?Math.sqrt(lam*d1*d2/dist):0; };
+  let min=Math.min(...known,eye,top), max=Math.max(...known,eye,top);
+  if(fq){ for(let i=0;i<n;i++){ const u=losH(i)+r1(i), l=losH(i)-r1(i);
+    if(u>max)max=u; if(l<min)min=l; } }
+  const rng=(max-min)||1;
+  const sx=i=>pad+i/(n-1)*(W-2*pad);
+  const sy=v=>H-pad-(v-min)/rng*(H-2*pad);
+  const valAt=i=>terr[i]==null?min:terr[i];
+  // 1. Fresnelzone als Band um die Sichtlinie + 60-%-Grenze (gestrichelt)
+  if(fq){
+    ctx.beginPath(); ctx.moveTo(sx(0),sy(losH(0)+r1(0)));
+    for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(losH(i)+r1(i)));
+    for(let i=n-1;i>=0;i--) ctx.lineTo(sx(i),sy(losH(i)-r1(i)));
+    ctx.closePath(); ctx.fillStyle='rgba(37,99,235,.10)'; ctx.fill();
+    ctx.strokeStyle='rgba(37,99,235,.5)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(sx(0),sy(losH(0)-0.6*r1(0)));
+    for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(losH(i)-0.6*r1(i)));
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.beginPath(); ctx.moveTo(sx(0),sy(valAt(0)));
+  for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(valAt(i)));
+  ctx.lineTo(sx(n-1),H-pad); ctx.lineTo(sx(0),H-pad); ctx.closePath();
+  ctx.fillStyle='rgba(121,85,72,.25)'; ctx.fill();
+  ctx.strokeStyle='#795548'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(sx(0),sy(valAt(0)));
+  for(let i=1;i<n;i++) ctx.lineTo(sx(i),sy(valAt(i))); ctx.stroke();
+  ctx.lineWidth=3;
+  ctx.strokeStyle='#2563eb'; ctx.beginPath(); ctx.moveTo(sx(0),sy(gA)); ctx.lineTo(sx(0),sy(eye)); ctx.stroke();
+  ctx.strokeStyle='#0b8f6a'; ctx.beginPath(); ctx.moveTo(sx(n-1),sy(gB)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke();
+  ctx.strokeStyle=colorFor(los.status); ctx.lineWidth=1.5; ctx.setLineDash([5,4]); ctx.beginPath();
+  ctx.moveTo(sx(0),sy(eye)); ctx.lineTo(sx(n-1),sy(top)); ctx.stroke(); ctx.setLineDash([]);
+  if(los.blockedAt){ const bi=Math.round(los.blockedAt.distance_m/dist*(n-1));
+    ctx.fillStyle='#d23b3b'; ctx.beginPath(); ctx.arc(sx(bi),sy(valAt(bi)),4,0,7); ctx.fill(); }
+  const fs=Math.max(10,Math.round(H/16));
+  ctx.fillStyle='#666'; ctx.font=fs+'px sans-serif'; ctx.textAlign='left';
+  ctx.fillText(Math.round(max)+'m',2,fs+2); ctx.fillText(Math.round(min)+'m',2,H-pad+fs);
+  ctx.fillStyle='#2563eb'; ctx.fillText('neu '+Math.round(eye)+'m',sx(0),H-6);
+  ctx.fillStyle='#0b8f6a'; ctx.textAlign='right'; ctx.fillText(Math.round(top)+'m',sx(n-1),H-6); ctx.textAlign='left';
+  if(fq){
+    ctx.fillStyle='rgba(37,99,235,.9)'; ctx.textAlign='center';
+    ctx.fillText('1. Fresnelzone '+fq+' GHz — gestrichelt = 60 % (Erdkrümmung k='+((los.earth&&los.earth.kFactor)||1.33)+' eingerechnet)', W/2, fs+2);
+    ctx.textAlign='left';
+  }
+}
+
+function openBigProfile(){
+  if(!lastProfile) return;
+  $('modalTitle').textContent='Geländeprofil'+(selected?(' — '+(selected.site.op||selected.site.id)):'');
+  $('modal').classList.add('open');
+  const cv=$('bigProfile'), rect=cv.getBoundingClientRect();
+  cv.width=Math.max(600,Math.round(rect.width)); cv.height=Math.max(320,Math.round(rect.height));
+  drawProfileInto(cv, lastProfile.data, lastProfile.los);
+}
+function closeBigProfile(){ $('modal').classList.remove('open'); }
+
+function resetAll(){
+  clearLines();
+  if(newMarker) map.removeLayer(newMarker); newMarker=null; newPoint=null;
+  if(radiusCircle) map.removeLayer(radiusCircle); radiusCircle=null;
+  $('np').innerHTML='<span class="hint">'+SITES.length+' Standorte geladen. Auf die Karte klicken.</span>';
+  $('sum').innerHTML=''; $('lineList').innerHTML=''; $('ensureBox').innerHTML='';
+  $('details').innerHTML='Klicke eine Linie für Details + Geländeprofil.';
+  $('profile').getContext('2d').clearRect(0,0,2000,2000);
+  $('calc').disabled=true; $('calc').textContent='Losspinne berechnen';
+  $('enlarge').disabled=true; lastProfile=null;
+}
+</script>
+</body>
+</html>`;
+
+// =====================================================================
+//  Gefälle-Prüfung für Aufstellflächen (z.B. MRT: max. 3 % auf 10 m).
+//  Fläche per Klick + Maßen aufziehen -> /v1/slope -> Farbraster + Verdikt.
+// =====================================================================
+const GEFAELLE_HTML = `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gefälle-Prüfung — Aufstellflächen</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; color: #1a2433; }
+  header { padding: 10px 16px; background: #0b3b44; color: #fff; }
+  header h1 { font-size: 16px; margin: 0; }
+  header a { color: #9fe4d0; font-size: 13px; text-decoration: none; }
+  #wrap { display: flex; height: calc(100vh - 44px); }
+  #map { flex: 1; }
+  #side { width: 340px; padding: 14px; overflow-y: auto; border-left: 1px solid #ddd; }
+  fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0 0 12px; padding: 8px 10px; }
+  legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+  label { font-size: 13px; display: block; margin: 6px 0 2px; }
+  input, select { width: 100%; padding: 5px; font-size: 13px; }
+  .rowflex { display: flex; gap: 8px; } .rowflex > div { flex: 1; }
+  .hint { font-size: 12px; color: #666; margin: 4px 0; }
+  button.primary { width:100%; padding:9px; margin-top:8px; cursor:pointer; background:#0b3b44; color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; }
+  button.primary:disabled { background:#9db4b8; cursor:default; }
+  .verdict { font-size: 15px; font-weight: 700; padding: 8px; border-radius: 6px; text-align: center; margin-bottom: 8px; }
+  .good { background: #e3f5ea; color: #17683c; } .bad { background: #fde8e8; color: #9b1c1c; }
+  table.stats { width: 100%; font-size: 13px; border-collapse: collapse; }
+  table.stats td { padding: 2px 0; } table.stats td:last-child { text-align: right; font-weight: 600; }
+  .lg { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 3px 0; }
+  .sw { width: 16px; height: 12px; border-radius: 2px; display: inline-block; }
+</style>
+</head>
+<body>
+<header><h1>Gefälle-Prüfung — Aufstellflächen &nbsp;·&nbsp; <a href="/losspinne">Losspinne</a> &nbsp;<a href="/docs">API-Doku</a></h1></header>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="side">
+    <p class="hint"><b>Klick auf die Karte</b> setzt die Fläche (Maße unten). Dann <b>Prüfen</b>. Bewertet wird die stärkste Neigung über die Basislänge — grün = innerhalb der Grenze.</p>
+    <fieldset>
+      <legend>Fläche</legend>
+      <div class="rowflex">
+        <div><label>Breite (m)</label><input id="w" type="number" value="20" min="2" step="1"/></div>
+        <div><label>Länge (m)</label><input id="l" type="number" value="40" min="2" step="1"/></div>
+      </div>
+      <div class="rowflex">
+        <div><label>Basislänge (m)</label><input id="win" type="number" value="10" min="2" step="1"/></div>
+        <div><label>Grenze (%)</label><input id="lim" type="number" value="3" min="0.1" step="0.1"/></div>
+      </div>
+      <label>Höhenmodell</label>
+      <select id="model">
+        <option value="dgm" selected>DGM — Gelände (korrekt für Aufstellflächen)</option>
+        <option value="dom">DOM — Oberfläche (inkl. Bewuchs/Bebauung)</option>
+      </select>
+      <label>API-Key (optional)</label>
+      <input id="apiKey" type="text" placeholder="leer = anonym (30/min)"/>
+      <button id="calc" class="primary" disabled>Gefälle prüfen</button>
+    </fieldset>
+    <fieldset>
+      <legend>Ergebnis</legend>
+      <div id="out"><span class="hint">Noch keine Fläche geprüft.</span></div>
+    </fieldset>
+    <fieldset>
+      <legend>Legende</legend>
+      <div class="lg"><span class="sw" style="background:#2e9e5b"></span> innerhalb der Grenze</div>
+      <div class="lg"><span class="sw" style="background:#e08e00"></span> bis 2× Grenze</div>
+      <div class="lg"><span class="sw" style="background:#d23b3b"></span> darüber</div>
+      <div class="lg"><span class="sw" style="background:#999"></span> keine Höhendaten</div>
+    </fieldset>
+    <p class="hint">Höhen: DGM/DOM Deutschland (1 m). Bewertung = Zentraldifferenz über die Basislänge.</p>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([51.7133, 14.4667], 17);
+L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+  { attribution: '© OpenStreetMap, © OpenTopoMap', maxZoom: 19, maxNativeZoom: 17 }).addTo(map);
+const $ = (id)=>document.getElementById(id);
+function headers(){ const k=$('apiKey').value.trim(); return k?{'X-API-Key':k}:{}; }
+function num(id,d){ const v=parseFloat($(id).value); return isFinite(v)?v:d; }
+
+let center=null, rect=null, overlay=null;
+
+map.on('click', e=>{ center=[e.latlng.lat,e.latlng.lng]; drawRect(); $('calc').disabled=false; });
+['w','l'].forEach(id=> $(id).oninput = ()=>{ if(center) drawRect(); });
+$('calc').onclick = check;
+
+function halfDeg(){
+  const w=num('w',20), l=num('l',40);
+  return [ (l/2)/111320, (w/2)/(111320*Math.cos(center[0]*Math.PI/180)) ];
+}
+function bnds(){ const [hLat,hLon]=halfDeg();
+  return [[center[0]-hLat,center[1]-hLon],[center[0]+hLat,center[1]+hLon]]; }
+function drawRect(){
+  if(rect) map.removeLayer(rect);
+  rect=L.rectangle(bnds(),{color:'#0b3b44',weight:2,fill:false}).addTo(map);
+}
+
+async function check(){
+  const b=bnds(), win=num('win',10), lim=num('lim',3), model=$('model').value;
+  $('out').innerHTML='<span class="hint">… wird berechnet</span>';
+  const q='bbox='+b[0][0]+','+b[0][1]+','+b[1][0]+','+b[1][1]
+        +'&window='+win+'&limit='+lim+'&model='+model;
+  try{
+    const r=await fetch('/v1/slope?'+q,{headers:headers()});
+    const d=await r.json();
+    if(!r.ok){ $('out').innerHTML='<b>Fehler:</b> '+(d.error||('HTTP '+r.status))
+        +(d.code==='OUT_OF_COVERAGE'||d.error&&d.error.indexOf('coverage')>=0?'<br><span class="hint">Für dieses Gebiet sind noch keine '+model.toUpperCase()+'-Kacheln verarbeitet.</span>':''); return; }
+    renderOverlay(d); renderStats(d);
+  }catch(e){ $('out').textContent='Netzwerkfehler'; }
+}
+
+function renderOverlay(d){
+  const cols=d.grid.cols, rows=d.grid.rows, lim=d.limit_percent;
+  const cv=document.createElement('canvas'); cv.width=cols; cv.height=rows;
+  const ctx=cv.getContext('2d'), img=ctx.createImageData(cols,rows);
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const v=d.slope_percent[r*cols+c];
+      const px=((rows-1-r)*cols+c)*4;   // Grid Zeile0=Süden, Bild Zeile0=Norden
+      let col;
+      if(v===null) col=[153,153,153,120];
+      else if(v<=lim) col=[46,158,91,150];
+      else if(v<=lim*2) col=[224,142,0,150];
+      else col=[210,59,59,165];
+      img.data[px]=col[0]; img.data[px+1]=col[1]; img.data[px+2]=col[2]; img.data[px+3]=col[3];
+    }
+  }
+  ctx.putImageData(img,0,0);
+  if(overlay) map.removeLayer(overlay);
+  overlay=L.imageOverlay(cv.toDataURL(),[[d.bounds.south,d.bounds.west],[d.bounds.north,d.bounds.east]],{opacity:.85}).addTo(map);
+}
+
+function renderStats(d){
+  const s=d.stats, ok=s.suitable;
+  $('out').innerHTML =
+    '<div class="verdict '+(ok?'good':'bad')+'">'+(ok?'✓ Fläche geeignet':'✗ nicht durchgehend geeignet')+'</div>'
+    +'<table class="stats">'
+    +'<tr><td>innerhalb '+d.limit_percent+' % / '+d.window_m+' m</td><td>'+s.ok_percent+' %</td></tr>'
+    +'<tr><td>max. Gefälle</td><td>'+s.max_percent+' %</td></tr>'
+    +'<tr><td>mittleres Gefälle</td><td>'+(s.mean_percent===null?'—':s.mean_percent+' %')+'</td></tr>'
+    +'<tr><td>Zellen über Grenze</td><td>'+s.over_limit_cells+' / '+s.evaluated+'</td></tr>'
+    +(s.nodata?'<tr><td>ohne Höhendaten</td><td>'+s.nodata+'</td></tr>':'')
+    +'<tr><td>Raster</td><td>'+d.grid.cols+'×'+d.grid.rows+' @ '+d.step_m+' m</td></tr>'
+    +'<tr><td>Modell</td><td>'+d.model.toUpperCase()+'</td></tr>'
+    +'</table>';
+  if(s.nodata>0){
+    $('out').insertAdjacentHTML('beforeend',
+      '<div class="hint" style="margin-top:6px">'+s.nodata+' Zellen ohne Höhendaten in diesem Gebiet.</div>'
+      +'<button id="ensureG" class="primary" style="margin-top:4px">⤓ Höhendaten für dieses Gebiet holen</button>');
+    $('ensureG').onclick=runEnsureG;
+  }
+}
+
+async function runEnsureG(){
+  const b=$('ensureG'); if(!b||!center) return;
+  b.disabled=true; b.textContent='… wird verarbeitet (kann 1–2 Min dauern)';
+  try{
+    const r=await fetch('/v1/ensure',{method:'POST',headers:{'Content-Type':'application/json',...headers()},
+      body:JSON.stringify({area:{center:center,radius_km:1}})});
+    const d=await r.json();
+    if(!r.ok||d.error){ b.disabled=false; b.textContent='⤓ Nochmal versuchen'; return; }
+    if(d.note){ b.textContent=d.note; return; }
+    await check();   // neu prüfen — Höhendaten sollten jetzt da sein
+  }catch(e){ b.disabled=false; b.textContent='⤓ Nochmal versuchen'; }
 }
 </script>
 </body>

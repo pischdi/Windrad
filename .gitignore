@@ -60,6 +60,19 @@ package-lock.json
 .env.local
 .env.*.local
 
+# Geocoding / Standortdaten (VERTRAULICH — nicht ins öffentliche Repo!)
+DATA/
+scripts/.google_geocoding_key
+scripts/.opencellid_token
+scripts/.geocode_cache.json
+scripts/.geocode_cache.json.tmp
+scripts/*standort*.csv
+scripts/*Standort*.csv
+*standort*.csv
+*Standort*.csv
+elevation-api/sites.json
+sites.json
+
 # Temporary files
 *.tmp
 *.temp
@@ -90,3 +103,11 @@ $RECYCLE.BIN/
 # - HTML/CSS
 # - Dokumentation
 # ========================================
+
+# Losspinne-Standortdaten (VERTRAULICH — echte Netzstandorte)
+elevation-api/losspinne_sites.json
+losspinne_sites.json
+
+# Worker-Dev-Secrets (ENSURE_URL/KEY)
+.dev.vars
+elevation-api/.dev.vars
