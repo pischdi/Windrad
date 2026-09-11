@@ -35,10 +35,11 @@ Cloud-Run-Pipeline (`cloudrun/tileproc.py`) tatsächlich eingebaut & lauffähig.
 1. **„Preset fehlt" ≠ 3 Zeilen.** NRW/BB haben ein simples HTTP-Verzeichnis; die anderen nutzen
    ATOM-Feeds, Metalinks, Batch-/Download-Clients → je Land ein kleiner **Listing-/Download-
    Adapter** in `tileproc.py` (Verarbeitung `make_grid`/Upload bleibt identisch). Kein Worker-Umbau.
-2. **Gefälle-Abkürzung über den Bund:** **BKG-DGM1 ist bundesweit offen** (eine Quelle für ganz
-   Deutschland). Damit wäre die Gefälle-Funktion überall abgedeckt, ohne 16 Länder-Adapter — braucht
-   aber eine **BKG-Registrierung/Freischaltung** (anonymer Abruf → HTTP 403). Für **DOM** hilft das
-   nicht: es gibt **kein bundesweites offenes DOM** (BKG-DOM1 kostenpflichtig ~8.000 €, Copernicus 30 m zu grob).
+2. **Keine Bund-Abkürzung — auch nicht für DGM.** BKG-**DGM1 (1 m) ist kostenpflichtig, ab 8.000 €**
+   (GDZ-Shop, Stand 09/2026). Gratis nur **DGM200/DGM1000** (viel zu grob), **DGM25** nur für Behörden.
+   Es gibt also **keinen kostenlosen bundesweiten DGM1-Weg** — DGM muss ebenso **je Bundesland** geholt
+   werden (dort kostenfrei), meist aus **demselben Portal wie das DOM** (ein Adapter liefert oft beides).
+   Für **DOM** ohnehin kein Bund-Weg (BKG-DOM1 ~8.000 €, Copernicus 30 m zu grob).
 
 ## Zwei UTM-Zonen
 - **UTM33** (wie BB): Sachsen, Berlin, Mecklenburg-Vorpommern.
@@ -54,9 +55,11 @@ tatsächlichem Standort-Bedarf, nicht alphabetisch.
 - **Saarland (🟡, nur Format):** LVGL Saarland, ☎ +49 681 9712-03, `poststelle@lvgl.saarland.de`.
 - Fertige Anfrage-Emails: Google Drive → LOS-Test → „Anfrage Hoehendaten – Problemfaelle & Kontakte (final)".
 
-## Bundesweite Quellen
-- **BKG DGM1** (Boden, 1 m): offen (DL-DE/Zero), aber **Freischaltung nötig** — `https://gdz.bkg.bund.de/` bzw. `https://daten.gdz.bkg.bund.de/produkte/dgm/dgm1/aktuell/`.
-- **BKG DOM1**: ❌ nicht offen (~8.000 €). **Copernicus GLO-30** (30 m DSM): frei, aber zu grob.
+## Bundesweite Quellen (Sackgasse für 1 m)
+- **BKG DGM1 (1 m):** ❌ **kostenpflichtig, ab 8.000 €** (GDZ-Shop, 09/2026). Gratis nur **DGM200/DGM1000** (zu grob); **DGM25/DGM5** nur für Behörden.
+- **BKG DOM1 (1 m):** ❌ ebenfalls **ab 8.000 €**.
+- **Copernicus GLO-30** (30 m DSM): frei, aber zu grob für Türme/Bewuchs.
+- **Fazit:** Für 1-m-**DOM und -DGM** gibt es beim Bund **keinen kostenlosen Weg** → immer die (kostenfreien) **Länder-Portale**. Ein Länder-Adapter liefert i. d. R. beides (DOM+DGM aus demselben Portal).
 
 ## Primärquellen (DOM, Stand Juli-Recherche; NRW/BB aktuell verifiziert)
 - Brandenburg bDOM: https://data.geobasis-bb.de/geobasis/daten/bdom/tif/ · DGM: …/daten/dgm/tif/
