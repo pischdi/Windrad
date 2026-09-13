@@ -191,3 +191,63 @@ nicht die absolute Genauigkeit, sondern dass die Genauigkeit **überhaupt verfü
 Alle drei erzählen dieselbe Geschichte aus verschiedenen Richtungen. Wenn du den
 Kaufgrund deiner Kunden in den Mittelpunkt stellen willst, ist **metergenau.de** der
 direkteste Treffer: Kein Planer kauft „Grundlage", er kauft Verlässlichkeit auf den Meter.
+
+---
+
+## Kunstbegriffe (2026-09-13)
+
+### Zu „unschief"
+
+`unschief.de` ist frei, `.com` und `.io` ebenfalls. Das Wort hat echte Qualitäten:
+Es gibt es nicht, es bleibt sofort hängen, es ist unverwechselbar, und man kann es
+am Telefon buchstabieren, ohne zu stocken. Als Marke ist es eigenständig schützbar —
+beschreibende Namen wie „metergenau" sind das nur eingeschränkt.
+
+**Aber es zeigt in die falsche Richtung.** Zwei Haken:
+1. **Negationen erben das Gegenteil.** Wer „unschief" hört, denkt zuerst „schief".
+   Bei einem Produkt, dessen Kern Verlässlichkeit ist, ist das ein ungünstiger
+   erster Reflex.
+2. **Es beschreibt das Gelände, nicht deine Leistung.** Du misst ja gerade, *wie*
+   schief etwas ist — Gefälle ist ein Ergebnis, kein Makel. Ein Name, der Schiefe
+   als Mangel setzt, passt nicht zu einem Dienst, der Neigung verkauft.
+
+Als **Zweitname für ein einzelnes Werkzeug** wäre es dagegen hübsch: der Gefälle-Check
+im Produkt könnte „unschief" heißen. Da wäre der Witz am richtigen Platz.
+
+### Die bessere Wurzel: das Lot
+
+Das Lot ist das älteste Präzisionswerkzeug am Bau und in der Vermessung, und es meint
+genau das, was du lieferst: die Beziehung zwischen Punkt, Höhe und Schwerkraft. Kurz,
+deutsch, unverbraucht, und in Verbindungen ergibt es Kunstwörter, die trotzdem etwas sagen.
+
+| Domain | frei | Gedanke |
+|---|---|---|
+| **sichtlot.de** | ja | Lot plus Sicht — Vermessung und Sichtlinie in einem Wort. Klingt nach Instrument, nicht nach Software |
+| **lotklar.de** (`.io` frei) | ja | „klar zum Lot", maritim angehaucht, kurz, positiv |
+| **lotgrund.de** | ja | Lot plus Grund, näher am Gelände |
+| **lotsicht.de** | ja | wie sichtlot, andere Betonung |
+| **hoehenlot.de** | ja | am beschreibendsten der Lot-Reihe |
+| **meterlot.de**, **metrolot.de** | ja | Lot plus Maß, stärker technisch |
+
+### Weitere freie Kunstwörter
+
+| Domain | Gedanke |
+|---|---|
+| **peilgrund.de**, **peilsicht.de**, **peilklar.de** | „peilen" ist das, was Richtfunk und Sichtlinie tun. Peilsicht trifft die Losspinne fast wörtlich |
+| **sichtmeter.de** | Auflösung und Ergebnis in einem Wort |
+| **trassenblick.de** | schön für Richtfunk, aber wieder zu eng — dasselbe Problem wie funkblick |
+| **geodot.io** | international, technisch, sagt wenig |
+
+**Vergeben:** meterra.de/.io, elevio.io, altiq.io, terrix.io, sichtor.de, klarlot.de,
+lotwerk.de, peilwerk.de
+
+### Wenn du einen Kunstbegriff willst: **sichtlot.de**
+
+Es ist erfunden, aber nicht leer. Jeder deutschsprachige Handwerker oder Planer hört
+sofort Werkzeug und Genauigkeit, ohne dass du ein Wort erklärst — und es legt dich
+weder auf Wind noch auf Funk noch auf Bürgerbeteiligung fest.
+
+Damit stehen drei verschiedene Philosophien zur Wahl:
+- **metergenau.de** — beschreibend, verkauft sich selbst, aber schwer als Marke zu schützen
+- **sichtgrund.de** — erklärt die Idee, ruhig und seriös
+- **sichtlot.de** — Kunstwort mit Bedeutung, am besten als Marke zu halten
