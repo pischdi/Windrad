@@ -67,3 +67,46 @@ www.<domain>      eine Seite, die erklärt, was das ist
 Ein Hinweis zum Kauf: Cloudflare verkauft ohne Aufschlag und verdrahtet DNS sofort,
 bietet aber nicht jede Endung an. Falls `.de` dort fehlt, woanders kaufen und die
 Namensserver auf Cloudflare zeigen — das Ergebnis ist dasselbe.
+
+---
+
+## Nachtrag: aus dem Grundgedanken abgeleitet (2026-09-13)
+
+**Der Grundgedanke in einem Satz:** Aus sechzehn unbrauchbaren Datenquellen wird eine
+Antwort — einmal teuer gerechnet, damit die Antwort beliebig oft billig ist. Und beide
+Zielgruppen, Fachleute wie Bürger, sehen dieselbe Rechnung, nur in anderer Verpackung.
+
+Gesucht war also ein Name für *Grundlage plus Sicht*, nicht für Windkraft und nicht
+für Funk.
+
+### Der Fund: **sichtgrund.de**
+
+Frei, und dazu `.com`, `.eu` und `.app`. Das ganze Nest ist zu haben.
+
+Das Wort trägt drei Bedeutungen gleichzeitig, und alle drei stimmen:
+1. **Der Grund, über den man sieht** — das Gelände, das DOM, der Rohstoff.
+2. **Die Grundlage der Sicht** — das vorgerechnete Raster, auf dem alles aufsetzt.
+3. **Der Sichtgrund im Sinne von Begründung** — genau das, was ein Beteiligungs-
+   verfahren oder eine Netzplanung braucht: keine Behauptung, sondern ein belegter Befund.
+
+Dazu kommt: kein Fachjargon, am Telefon buchstabierbar, festgelegt auf nichts außer
+Sicht und Gelände.
+
+```
+ar.sichtgrund.de      AR-Darstellung, öffentlich
+api.sichtgrund.de     Elevation-API, Doku und Demo
+www.sichtgrund.de     was das ist, für wen
+```
+
+### Weitere freie Funde aus derselben Runde
+
+| Domain | Gedanke |
+|---|---|
+| grundsicht.de | dieselbe Idee andersherum, `.com` aber vergeben |
+| blickgrund.de | weicher, mehr Landschaft als Technik |
+| sichtstand.de | Sicht plus Standort, sachlich |
+| gelaendeklar.de | betont das Ergebnis: hinterher ist klar, was Sache ist |
+| sichtwissen.de, hoehenklar.de, sichtfreigabe.de | solide, aber weniger dicht |
+
+**Vergeben:** sichtsache.de, blickfrei.de, klarblick.de, fernsicht.de, sichtfaktor.de,
+sichtpunkt.de
