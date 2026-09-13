@@ -149,3 +149,45 @@ Beides hat ein Argument:
 dieselbe Stelle zeigen lassen, falls die API später ein eigenes Gesicht bekommen soll.
 Zwei Namen kosten zusammen unter 40 Euro im Jahr. Zwei *Marken* zu pflegen kostet
 dagegen richtig Zeit — also eine davon führen, die andere nur parken.
+
+---
+
+## Richtung Präzision (2026-09-13)
+
+**Vorab eine Warnung, die zum Namen gehört:** Deine Auflösung ist **ein Meter**, und
+die Quelle ist amtlich. Das ist genau, aber es ist nicht Millimeter. Ein Name, der
+mehr verspricht, fällt dir beim ersten Fachgespräch auf die Füße. „Metergenau" darfst
+du behaupten, „millimetergenau" nicht. Der Vorteil gegenüber dem Wettbewerb ist ohnehin
+nicht die absolute Genauigkeit, sondern dass die Genauigkeit **überhaupt verfügbar** ist:
+1 m statt 30 m aus globalen Modellen.
+
+### Deutsch, frei
+
+| Domain | Gedanke | Bewertung |
+|---|---|---|
+| **metergenau.de** | Sagt exakt, was stimmt: auf den Meter genau. Ein Wort, das jeder Handwerker, Planer und Bürgermeister sofort versteht, und das nichts verspricht, was du nicht hältst | **stärkster Kandidat dieser Runde** |
+| **sichtgenau.de** | Verbindet Präzision mit dem Ergebnis: die Sicht, genau bestimmt. Nah an sichtgrund, aber mit Betonung auf Güte statt Grundlage | sehr gut |
+| **hoehengenau.de** | dieselbe Idee von der Datenseite | etwas technischer, weniger Marke |
+| **meterscharf.de** | „scharf" klingt nach Bild und Auflösung, passt zur AR-Seite | ungewöhnlich, bleibt hängen, ist aber erklärungsbedürftig |
+
+### Englisch, frei
+
+| Domain | Gedanke |
+|---|---|
+| **precisight.io** | Verschmelzung aus *precision* und *sight* — Präzision und Sicht in einem Wort, kurz und merkfähig |
+| **onemeter.io** | Das Versprechen als Name: ein Meter. Ehrlich, prüfbar, international sofort verständlich |
+| **truemeter.io** | *true* plus *meter*, verbindet Ground-Truth-Gedanke mit der Auflösung (`.com` vergeben) |
+| **precisionground.io** | ausgeschrieben, seriös, etwas lang |
+| **exactground.io**, **metergrid.io**, **meterview.io** | solide Zweitwahl |
+
+**Vergeben:** grundgenau.de, truemeter.com, precisionterrain.com
+
+### Einordnung gegenüber den bisherigen Favoriten
+
+- **sichtgrund.de** beschreibt die *Grundlage* — was du hast.
+- **metergenau.de** beschreibt die *Güte* — wie gut es ist.
+- **truelevation.io** beschreibt die *Wahrheit* — dass es stimmt.
+
+Alle drei erzählen dieselbe Geschichte aus verschiedenen Richtungen. Wenn du den
+Kaufgrund deiner Kunden in den Mittelpunkt stellen willst, ist **metergenau.de** der
+direkteste Treffer: Kein Planer kauft „Grundlage", er kauft Verlässlichkeit auf den Meter.
