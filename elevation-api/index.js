@@ -108,6 +108,9 @@ export default {
       if (url.pathname === '/v1/viewshed') {
         return await handleViewshed(url, env);
       }
+      if (url.pathname === '/v1/tile') {
+        return await handleTile(url, env);
+      }
 
       return json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
     } catch (err) {
@@ -135,6 +138,17 @@ async function authAndRateLimit(request, env) {
       if (!record) {
         return json({ error: 'Invalid API key', code: 'UNAUTHORIZED' }, 401);
       }
+      // Herkunftsbindung: Trägt der Key-Datensatz eine `origins`-Liste, darf er
+      // nur von diesen Seiten aus benutzt werden. Gedacht für den Schlüssel, der
+      // offen im Quelltext der AR-App steht.
+      //
+      // WICHTIG: Der Origin-Header stammt vom Browser und lässt sich außerhalb
+      // eines Browsers frei setzen. Das verhindert also, dass jemand den Key aus
+      // unserer Seite kopiert und auf seiner eigenen Website einbaut — es ist
+      // kein Schutz gegen ein Skript auf der Kommandozeile. Dafür sind Limit und
+      // Kontingent zuständig.
+      const originGate = enforceKeyOrigin(request, record);
+      if (originGate) return originGate;
     }
     if (env.RL_KEY) {
       const { success } = await env.RL_KEY.limit({ key: apiKey });
@@ -150,6 +164,31 @@ async function authAndRateLimit(request, env) {
     if (!success) return rateLimited(60);
   }
   return null;
+}
+
+/**
+ * Prüft die optionale Herkunftsbindung eines API-Keys.
+ *
+ * KV-Datensatz: {"name":"…","tier":"frontend","origins":["https://ar.example.de"]}
+ * Fehlt `origins`, gilt der Key überall (Kunden-Keys für Server-zu-Server).
+ * Ist `origins` gesetzt, muss der Origin-Header exakt passen.
+ */
+function enforceKeyOrigin(request, record) {
+  let origins;
+  try {
+    origins = JSON.parse(record)?.origins;
+  } catch {
+    return null; // Alt-Datensätze ohne JSON bleiben gültig.
+  }
+  if (!Array.isArray(origins) || origins.length === 0) return null;
+
+  const origin = request.headers.get('Origin');
+  if (origin && origins.includes(origin)) return null;
+
+  return json(
+    { error: 'API key is not valid for this origin', code: 'ORIGIN_NOT_ALLOWED' },
+    403
+  );
 }
 
 function rateLimited(retryAfterSeconds) {
@@ -639,8 +678,10 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
         const obj = await env.TILES.get(k);
         if (obj) buffer = await obj.arrayBuffer();
       }
-      // 2) Fallback: öffentliche R2-URL
-      if (!buffer) {
+      // 2) Fallback: öffentliche R2-URL — nur noch, wenn ausdrücklich erlaubt.
+      //    Solange dieser Weg offensteht, nützt das Abschalten der öffentlichen
+      //    r2.dev-Adresse nichts. Für lokale Tests: ALLOW_PUBLIC_FALLBACK=1.
+      if (!buffer && env && env.ALLOW_PUBLIC_FALLBACK === '1') {
         const resp = await fetch(`${PUBLIC_R2}/${k}`);
         if (resp.ok) buffer = await resp.arrayBuffer();
       }
@@ -656,6 +697,50 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
 
   cache.set(key, promise);
   return promise;
+}
+
+/**
+ * GET /v1/tile?zone=33&x=459&y=5722[&model=dom|dgm]
+ *
+ * Liefert eine komplette Höhenkachel als rohe Bytes (Uint16, Höhe in cm,
+ * 1000×1000 Zellen = 2.000.000 Byte). Gedacht für Anwendungen, die selbst
+ * rechnen — allen voran die AR-App, die ihr Höhenprofil im Browser bildet.
+ *
+ * Damit gibt es keinen Grund mehr, den R2-Bucket öffentlich zu stellen:
+ * Auch Kachelzugriffe laufen jetzt über Schlüssel, Limit und Herkunftsprüfung.
+ */
+async function handleTile(url, env) {
+  const zone = Number(url.searchParams.get('zone') ?? 33);
+  const rawX = url.searchParams.get('x');
+  const rawY = url.searchParams.get('y');
+  const x = Number(rawX);
+  const y = Number(rawY);
+  const model = url.searchParams.get('model') === 'dgm' ? 'dgm' : 'dom';
+
+  if (rawX === null || rawY === null || !Number.isFinite(x) || !Number.isFinite(y)) {
+    return json({ error: 'x and y are required (UTM km)', code: 'BAD_REQUEST' }, 400);
+  }
+  if (zone !== 32 && zone !== 33) {
+    return json({ error: 'zone must be 32 or 33', code: 'BAD_REQUEST' }, 400);
+  }
+
+  const heights = await loadTile(zone, x, y, env, new Map(), model);
+  if (!heights) {
+    return json(
+      { error: `Tile ${model}_${zone}_${x}_${y} not processed yet`, code: 'OUT_OF_COVERAGE' },
+      404
+    );
+  }
+
+  return new Response(heights.buffer, {
+    headers: {
+      ...CORS,
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `inline; filename="${model}_${zone}_${x}_${y}.bin"`,
+      // Kacheln ändern sich nur bei einer Neubefliegung, also lange zwischenspeichern.
+      'Cache-Control': 'public, max-age=86400, immutable',
+    },
+  });
 }
 
 /**

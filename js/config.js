@@ -26,7 +26,15 @@ const CONFIG = {
     ELEVATION: {
         samples: 200,          // Anzahl Messpunkte zwischen User und Windrad (erhöht für bessere Verdeckungs-Erkennung)
         cacheEnabled: true,    // localStorage Cache aktivieren
-        cacheDuration: 86400000 // 24 Stunden in Millisekunden
+        cacheDuration: 86400000, // 24 Stunden in Millisekunden
+
+        // Schlüssel für die Elevation-API. Er steht hier zwangsläufig offen im
+        // Quelltext — deshalb im KV-Datensatz des Keys `origins` setzen, dann
+        // gilt er nur von unserer eigenen Seite aus:
+        //   wrangler kv key put --namespace-id=<API_KEYS> "<key>" \
+        //     '{"name":"AR-Frontend","tier":"frontend","origins":["https://windrad.pages.dev"]}' --remote
+        apiKey: null,          // hier den Frontend-Schlüssel eintragen
+        utmZone: 33            // Brandenburg; NRW und der Westen liegen in Zone 32
     },
     
     // Map Settings
