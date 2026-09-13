@@ -110,3 +110,42 @@ www.sichtgrund.de     was das ist, für wen
 
 **Vergeben:** sichtsache.de, blickfrei.de, klarblick.de, fernsicht.de, sichtfaktor.de,
 sichtpunkt.de
+
+---
+
+## Englische Richtung (2026-09-13, Stichworte: ground truth, elevation, earth, plot, land, view)
+
+**„Ground truth" ist der stärkste Begriff der ganzen Liste.** In Geodaten und
+Maschinellem Lernen heißt er: der überprüfte, tatsächliche Befund, an dem sich
+alles andere messen lassen muss. Genau das verkaufst du — nicht eine Schätzung
+aus einem globalen 30-Meter-Modell, sondern amtliche Messung mit einem Meter.
+
+### Frei und aus meiner Sicht gut
+
+| Domain | Gedanke | Haken |
+|---|---|---|
+| **truelevation.io** (`.de`, `.app` auch frei) | Wortspiel aus *true elevation* und *elevation* — Wahrheit und Höhe in einem Wort. Enthält den Produktbegriff, den ein Entwickler sucht | `.com` ist vergeben; am Telefon muss man es einmal erklären |
+| **groundsight.io** | Wörtlich Boden plus Sicht, also genau Sichtlinie über Gelände. Nichts zu buchstabieren, keine Doppeldeutigkeit | etwas generisch |
+| **terraplot.io** (`.app` frei) | Gelände plus Kachel/Parzelle. Klingt nach Werkzeug, nicht nach Beratung | `.com` vergeben |
+| **plotview.io** | Parzelle plus Ansicht — trifft die AR-Seite gut | sagt nichts über Höhe |
+| **landview.io** (`.app` frei) | schlicht, breit einsetzbar | austauschbar |
+| **geotruth.io** | die Ground-Truth-Idee kurz | klingt eine Spur nach Weltanschauung |
+| **earthplot.io** | Erde plus Kachel | „earth" ist global gedacht, du bist es nicht |
+| **groundtruthelevation.com** | sagt alles, wirklich alles | zu lang zum Diktieren |
+
+**Vergeben:** groundtruth.io/.app, trueground.io, truelevation.com, elevationtruth.com,
+groundview.io, terrasight.io, landsight.io, sightline.io, siteline.io, linesight.io,
+earthview.io, terraplot.com, elevate.earth
+
+### Deutsch oder Englisch?
+
+Beides hat ein Argument:
+- **Deutsch (`sichtgrund.de`)** gewinnt bei denen, die zahlen sollen: Gemeinden,
+  Planungsbüros, Netzplanung in Deutschland. Am Telefon sofort klar, wirkt bodenständig.
+- **Englisch (`truelevation.io`)** gewinnt bei Entwicklern, die eine API einbauen,
+  und lässt die Tür nach draußen offen.
+
+**Mein Rat:** `sichtgrund.de` als Hausadresse, `truelevation.io` dazunehmen und auf
+dieselbe Stelle zeigen lassen, falls die API später ein eigenes Gesicht bekommen soll.
+Zwei Namen kosten zusammen unter 40 Euro im Jahr. Zwei *Marken* zu pflegen kostet
+dagegen richtig Zeit — also eine davon führen, die andere nur parken.
