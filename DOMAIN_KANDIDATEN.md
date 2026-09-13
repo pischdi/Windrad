@@ -251,3 +251,40 @@ Damit stehen drei verschiedene Philosophien zur Wahl:
 - **metergenau.de** — beschreibend, verkauft sich selbst, aber schwer als Marke zu schützen
 - **sichtgrund.de** — erklärt die Idee, ruhig und seriös
 - **sichtlot.de** — Kunstwort mit Bedeutung, am besten als Marke zu halten
+
+---
+
+## Alltagswörter mit zweitem Boden (2026-09-13)
+
+Nach dem Muster Apple: ein normales Wort, das das Produkt **nicht** beschreibt, aber
+bei der Zielgruppe das richtige Bild auslöst. Gesucht wurden alte Handwerks-, Vermessungs-
+und Seefahrtswörter, die jeder kennt, ohne sie zu erklären.
+
+### Vorne: **kimme** — `.de`, `.io` und `.app` sind alle frei
+
+Die Kimme ist die hintere Kerbe der Visierung, durch die man zielt. Zwei Silben,
+kein Buchstabieren, kein Fachjargon — und wer schon einmal gezielt hat, hört sofort
+„eine Linie genau anvisieren". Genau die Bewegung, die deine Sichtlinie macht.
+
+Bekannter Haken: Kimme heißt umgangssprachlich auch Gesäßfalte. In der Praxis trägt das
+selten, weil der Kontext sofort eindeutig ist (`api.kimme.io` liest niemand falsch),
+aber man sollte es einmal laut ausgesprochen haben, bevor man kauft.
+
+### Weitere freie Fundstücke
+
+| Domain | Zweiter Boden | Bewertung |
+|---|---|---|
+| **klafter.de** (`.io` frei) | altes Längenmaß, etwa 1,80 m. Warm, alt, unverbraucht, ohne jede Doppeldeutigkeit | schön, aber niemand hört Präzision heraus |
+| **fadenkreuz.io** | das Kreuz im Zielfernrohr, sofortiges Bild von Anvisieren | noch waffennäher als Kimme |
+| **flucht.io**, **fluchten.io** | in der Vermessung heißt *fluchten* genau das: Punkte auf eine gerade Linie bringen. Fachlich ein Volltreffer | im Alltag hört jeder zuerst Flucht im Sinne von Weglaufen. Zu riskant |
+| **messlatte.io** | „die Messlatte höher legen" plus die echte Messlatte des Vermessers — Redewendung und Werkzeug in einem | `.de` ist vergeben, und ohne `.de` wirkt es in Deutschland halbiert |
+| **zielstab.de** | der Stab, auf den der Vermesser zielt | etwas sperrig |
+
+**Vergeben, obwohl sie perfekt gewesen wären:** libelle.io (die Luftblase im Nivelliergerät),
+kimm.de (die Horizontlinie auf See), richtschnur.de, visier.io, diopter.de, okular.io,
+fluchtlinie.de, nivellier.de, absehen.de, bake.io, pegel.io, kluppe.de, schnurgeruest.de
+
+### Stand der Empfehlung
+
+**kimme.de + kimme.io + kimme.app** sichern. Das komplette Nest ist frei, kostet zusammen
+wenig, und der Name erfüllt beide Bedingungen: Er erklärt nichts, und er trifft trotzdem.
