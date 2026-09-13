@@ -20,7 +20,7 @@ Entschieden ist bereits: **die AR-App greift über den Worker zu, nicht direkt a
  ④ Worker  elevation-api          ← die einzige Tür zu den Daten
         │   /v1/point · /v1/profile · /v1/line-of-sight · /v1/viewshed · /v1/ensure
         │
-        ├───► ⑤ Losreport (geschützt)   Richtfunk-/Sichtverbindungsplanung, Kunden-Schlüssel
+        ├───► ⑤ Losspinne (geschützt)   darstellen im Browser + Export als GeoJSON
         ├───► ⑥ Kunden-API (geschützt)  Fremdentwickler, Kontingent je Schlüssel
         └───► ⑦ AR-App (offen)          Bürger, Frontend-Schlüssel nur für unsere Domain
                     │
@@ -159,12 +159,48 @@ die Zahlen hier sind Größenordnungen, keine Angebote.
 
 ---
 
-## 7. Offene Punkte
+## 7. Ausgabeformat: darstellen und als GeoJSON ausliefern
+
+**Entschieden (2026-09-13): kein Report, kein PDF. Darstellen im Browser, Export als GeoJSON.**
+
+Das ist aus drei Gründen die bessere Wahl:
+- **Anschlussfähig.** GeoJSON zieht man in QGIS, ArcGIS oder ein Planungswerkzeug und
+  arbeitet weiter. Ein PDF landet im Ordner und stirbt dort.
+- **Kein zweiter Apparat.** Ein PDF bräuchte eine Rendering-Kette im Worker. GeoJSON
+  fällt aus den Daten heraus, die ohnehin vorliegen.
+- **Prüfbar.** Der Kunde sieht die Zahlen, nicht nur eine Ampel.
+
+### Was welcher Endpunkt liefert
+
+| Inhalt | Geometrie | Eigenschaften |
+|---|---|---|
+| Standorte | `Point` | Name, Antennenhöhe, Quelle |
+| Sichtverbindung | `LineString` (Anfang → Ende) | Bewertung (frei / teilweise / kritisch), geringster Abstand zum Gelände, Entfernung, Antennenhöhen beidseitig |
+| Höhenprofil | `LineString` mit Höhe als dritter Koordinate | Schrittweite, Modell (DOM oder DGM), Kachelabdeckung |
+| Sichtfeld (viewshed) | `Polygon` oder `MultiPolygon` | Beobachterhöhe, Reichweite |
+
+Alles zusammen als eine `FeatureCollection` je Abfrage, dann hat der Empfänger eine
+Datei statt vier.
+
+### Zwei Fallstricke
+
+1. **GeoJSON ist auf WGS84 festgelegt** (RFC 7946). Deine Kacheln liegen in UTM 32
+   und 33. Es wird also immer umgerechnet ausgeliefert. Wer in UTM weiterarbeitet,
+   rechnet zurück — die Rundungsfehler sind im Zentimeterbereich und damit egal,
+   aber erwähnen muss man es.
+2. **Höhen gehören in die Koordinate**, nicht in ein eigenes Feld. Die dritte Stelle
+   einer GeoJSON-Position ist genau dafür da. Wer es anders macht, fliegt in jedem
+   Standardwerkzeug auf die Nase.
+
+Wer später doch UTM braucht, bekommt GeoPackage oder CSV dazu. Erst mal nicht bauen.
+
+---
+
+## 8. Offene Punkte
 
 - **Standortkatalog für die Losspinne** fehlt weiterhin (Export aus der Netzplanung).
-  Ohne ihn bleibt der Losreport ein Demonstrator.
-- **Was genau steht im Losreport?** Sichtlinienbewertung je Verbindung, Profil,
-  Antennenhöhen — und in welcher Form, als Seite oder als PDF?
+  Ohne ihn bleibt die Sichtlinienrechnung ein Demonstrator.
 - **Datenlizenz je Land** sauber nachweisen, bevor verkauft wird. Nennung der Quelle
-  gehört dann in Doku und Report.
-- **Foto-KI:** bleibt sie Teil der AR-App oder wird sie ein eigener, bezahlter Dienst?
+  gehört dann in Doku und Export.
+- **Foto-KI:** vertagt (2026-09-13). Bleibt vorerst Teil der AR-App, Entscheidung über
+  einen eigenen bezahlten Dienst später.
