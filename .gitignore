@@ -111,3 +111,10 @@ losspinne_sites.json
 # Worker-Dev-Secrets (ENSURE_URL/KEY)
 .dev.vars
 elevation-api/.dev.vars
+
+# Lokaler Runner
+cloudrun/.venv/
+cloudrun/.env
+cloudrun/*.log
+cloudrun/.guard.pid
+cloudrun/.runner.pid
