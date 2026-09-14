@@ -14,9 +14,12 @@ class ElevationService {
         this.cacheEnabled = CONFIG.ELEVATION.cacheEnabled;
         this.tileCache = new Map(); // Cache für geladene Tiles
 
-        // Tile Server URL (Cloudflare R2)
-        // WICHTIG: Ersetzen Sie 'YOUR-BUCKET-ID' mit Ihrer tatsächlichen R2 Bucket-ID
-        this.tileServerUrl = 'https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev';
+        // Kacheln kommen über die Elevation-API, nicht mehr direkt aus dem
+        // R2-Bucket. Damit greifen Schlüssel, Limit und Herkunftsprüfung auch
+        // für die AR-App, und der Bucket kann geschlossen bleiben.
+        this.tileApiUrl = `${CONFIG.ELEVATION_API}/v1/tile`;
+        this.apiKey = CONFIG.ELEVATION.apiKey || null;
+        this.utmZone = CONFIG.ELEVATION.utmZone || 33;
     }
 
     /**
@@ -124,12 +127,20 @@ class ElevationService {
 
         log(`Loading tile: ${tileKey}`);
 
-        // Fetch tile (uncompressed for simplicity)
-        const url = `${this.tileServerUrl}/tile_${tileKey}.bin`;
-        const response = await fetch(url);
+        // Kachel über die API holen (Schlüssel + Limit + Herkunftsprüfung).
+        const url = `${this.tileApiUrl}?zone=${this.utmZone}&x=${tileX}&y=${tileY}&model=dom`;
+        const response = await fetch(url, {
+            headers: this.apiKey ? { 'X-API-Key': this.apiKey } : {},
+        });
 
         if (!response.ok) {
-            throw new Error(`Tile not found: ${tileKey}`);
+            if (response.status === 404) {
+                throw new Error(`Tile not processed yet: ${tileKey}`);
+            }
+            if (response.status === 401 || response.status === 403) {
+                throw new Error(`Tile access denied (${response.status}) — check CONFIG.ELEVATION.apiKey`);
+            }
+            throw new Error(`Tile request failed (${response.status}): ${tileKey}`);
         }
 
         // Read as ArrayBuffer
