@@ -965,6 +965,68 @@ function buildOpenApi(origin) {
           },
         },
       },
+      '/v1/slope': {
+        get: {
+          summary: 'Gefälle / Neigung einer Fläche',
+          description:
+            'Rastert ein Rechteck und liefert je Zelle die Hangneigung in Prozent, dazu '
+            + 'Mittel- und Maximalwert sowie den Anteil über dem Grenzwert. Rechnet '
+            + 'standardmäßig auf dem DGM (Gelände ohne Bewuchs) — für Aufstellflächen '
+            + 'und Baugrund die richtige Wahl.',
+          parameters: [
+            { name: 'bbox', in: 'query', required: true, schema: { type: 'string' }, example: '51.650,14.410,51.660,14.425', description: '"minLat,minLon,maxLat,maxLon" (WGS84)' },
+            { name: 'model', in: 'query', required: false, schema: { type: 'string', enum: ['dgm', 'dom'], default: 'dgm' }, description: 'dgm = Gelände, dom = Oberfläche' },
+            { name: 'window', in: 'query', required: false, schema: { type: 'number', default: 10, minimum: 2, maximum: 100 }, description: 'Messbasis in Metern' },
+            { name: 'limit', in: 'query', required: false, schema: { type: 'number', default: 3, minimum: 0.1, maximum: 100 }, description: 'Grenzwert in Prozent für die Bewertung' },
+            { name: 'step', in: 'query', required: false, schema: { type: 'integer', default: 1, minimum: 1, maximum: 10 }, description: 'Rasterweite in Metern' },
+            apiKeyHeader,
+          ],
+          responses: {
+            200: { description: 'Neigungsraster', content: { 'application/json': { schema: { type: 'object' } } } },
+            ...errorResponses,
+          },
+        },
+      },
+      '/v1/tile': {
+        get: {
+          summary: 'Rohe Höhenkachel (Schlüssel erforderlich)',
+          description:
+            'Liefert eine komplette 1-km-Kachel als rohe Bytes: 1000 × 1000 Zellen, '
+            + 'je Zelle ein Uint16 (Höhe in Zentimetern, Little Endian), also exakt '
+            + '2.000.000 Byte. Gedacht für Anwendungen, die selbst rechnen. '
+            + '**Dieser Endpunkt verlangt immer einen API-Key** — anders als die '
+            + 'Rechen-Endpunkte, die anonym mit kleinem Limit nutzbar sind.',
+          security: [{ ApiKeyAuth: [] }],
+          parameters: [
+            { name: 'zone', in: 'query', required: false, schema: { type: 'integer', enum: [32, 33], default: 33 }, description: 'UTM-Zone (33 = Osten, 32 = Westen)' },
+            { name: 'x', in: 'query', required: true, schema: { type: 'integer' }, example: 459, description: 'UTM-Ostwert in Kilometern' },
+            { name: 'y', in: 'query', required: true, schema: { type: 'integer' }, example: 5722, description: 'UTM-Nordwert in Kilometern' },
+            { name: 'model', in: 'query', required: false, schema: { type: 'string', enum: ['dom', 'dgm'], default: 'dom' } },
+            apiKeyHeader,
+          ],
+          responses: {
+            200: { description: 'Kachel', content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } },
+            ...errorResponses,
+          },
+        },
+      },
+      '/v1/ensure': {
+        post: {
+          summary: 'Fehlende Kacheln nachfordern',
+          description:
+            'Stößt die Verarbeitung für ein Gebiet an, für das noch keine Kacheln '
+            + 'vorliegen. Antwortet, sobald der Auftrag angenommen ist — nicht erst, '
+            + 'wenn er fertig ist.',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { type: 'object' }, example: { bbox: [51.65, 14.41, 51.66, 14.42], model: 'dom' } } },
+          },
+          responses: {
+            200: { description: 'Auftrag angenommen', content: { 'application/json': { schema: { type: 'object' } } } },
+            ...errorResponses,
+          },
+        },
+      },
       '/v1/health': {
         get: { summary: 'Liveness-Check', security: [{}], responses: { 200: { description: 'OK' } } },
       },
