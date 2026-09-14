@@ -7,7 +7,7 @@ und lädt sie nach Cloudflare R2 (Key tile_<zone>_E_N.bin bzw. dgm_<zone>_E_N.bi
 R2-Zugang aus Umgebungsvariablen:
   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, (BUCKET, Default windrad-tiles)
 """
-import io, os, re, gzip, zipfile, time
+import io, os, re, json, gzip, zipfile, time
 import requests
 import numpy as np
 import rasterio
@@ -18,8 +18,14 @@ from botocore.config import Config
 
 TILE_SIZE = 1000       # Meter pro Kachel
 GRID = 1000            # Zellen pro Kante -> 1 m Auflösung
+MAX_CM = 65535         # Uint16-Decke: 655,35 m ü. NN (siehe make_grid)
 
 # Bundesland x Produkt. kind='dom' (Oberfläche, Sichtlinien) / 'dgm' (Gelände, Gefälle).
+#
+# Optionale Felder:
+#   src_km  Kantenlänge der Quellkachel in km (Default 1). Länder mit 2-km-Kacheln
+#           (Sachsen) liefern pro Download vier Zielkacheln — siehe process_source().
+#   lister  Abweichender Weg zum Dateiverzeichnis (Default: HTML-Listing über name_re).
 PRESETS = {
     'BB_DOM':  dict(zone=33, kind='dom', base='https://data.geobasis-bb.de/geobasis/daten/bdom/tif',
                     name_re=r'bdom_33(\d+)-(\d+)\.zip'),
@@ -29,7 +35,15 @@ PRESETS = {
                     name_re=r'dom1_32_(\d+)_(\d+)_1_nw_\d+\.tif'),
     'NRW_DGM': dict(zone=32, kind='dgm', base='https://www.opengeodata.nrw.de/produkte/geobasis/hm/dgm1_tiff/dgm1_tiff',
                     name_re=r'dgm1_32_(\d+)_(\d+)_1_nw_\d+\.tif'),
+    # Sachsen: 2-km-Kacheln aus der GeoCloud (Nextcloud). Kein Verzeichnislisting —
+    # das Kachelverzeichnis steht in der Batch-Download-Seite, siehe _list_sn().
+    'SN_DOM':  dict(zone=33, kind='dom', src_km=2, lister='sn_batch', product='DOM1_TIFF_2km',
+                    base='https://geocloud.landesvermessung.sachsen.de/public.php/dav/files'),
+    'SN_DGM':  dict(zone=33, kind='dgm', src_km=2, lister='sn_batch', product='DGM1_TIFF_2km',
+                    base='https://geocloud.landesvermessung.sachsen.de/public.php/dav/files'),
 }
+
+SN_BATCH_URL = 'https://www.geodaten.sachsen.de/batch-download-4719.html'
 
 
 def key_prefix(kind):
@@ -48,14 +62,93 @@ def r2_client():
     )
 
 
+def _js_object(html, var):
+    """`batchConfig.<var>={…}` aus der Seite schneiden (Klammern zählen) und lesen."""
+    i = html.index(f'batchConfig.{var}=')
+    j = html.index('{', i)
+    depth, k = 0, j
+    while True:
+        if html[k] == '{':
+            depth += 1
+        elif html[k] == '}':
+            depth -= 1
+            if depth == 0:
+                break
+        k += 1
+    return json.loads(html[j:k + 1])
+
+
+def _rle_cells(rle, step=1):
+    """Sachsens Lauflängenkodierung [zelle, anzahl, …] -> {(E_km, N_km)}.
+
+    Eine Zelle ist die 7-stellige Zahl EEENNNN (Rechtswert-km, Hochwert-km);
+    der Lauf geht nach Norden, bei 2-km-Produkten in 2-km-Schritten.
+    """
+    out = set()
+    for i in range(0, len(rle), 2):
+        cell, n = rle[i], rle[i + 1]
+        x, y = divmod(cell, 10000)
+        out.update((x, y + d * step) for d in range(n))
+    return out
+
+
+def _list_sn(p):
+    """Sachsen: Kachelverzeichnis aus der Batch-Download-Seite ableiten.
+
+    Die Seite trägt zwei JS-Objekte: `batchConfig.products` (je Produkt die
+    GeoCloud-Share-ID, die Dateinamen-Vorlage und die Liste nicht existierender
+    Kacheln) und `batchConfig.mapping` (je Gemarkung das 1-km-Raster). Die Share-ID
+    wandert in den Dateinamen, damit `base + '/' + fname` unverändert trägt.
+    """
+    html = requests.get(SN_BATCH_URL, timeout=180).text
+    prod = _js_object(html, 'products')[p['product']]
+    step = prod['packagesize'] // 1000
+    if step != p.get('src_km', 1):
+        raise RuntimeError(f"Sachsen: Paketgröße {step} km passt nicht zu src_km")
+
+    km1 = set()
+    for gemarkung in _js_object(html, 'mapping').values():
+        km1 |= _rle_cells(gemarkung['grid_id'])
+    missing = _rle_cells(prod['computed_not_existing'], step=step)
+
+    files = {}
+    for x, y in km1:
+        src = (x // step * step, y // step * step)
+        if src in missing:
+            continue
+        files[(x, y)] = '{}/{}'.format(prod['share_id'], prod['filename']
+                                       .replace('$Rechtswert$', str(src[0]))
+                                       .replace('$Hochwert$', str(src[1])))
+    return files
+
+
 def list_all_tiles(preset):
-    """{(E_km, N_km): dateiname} — voller Dateiname (enthält je Land Jahr/Suffix)."""
+    """{(E_km, N_km): dateiname} je *Ziel*kachel (1 km) — voller Dateiname.
+
+    Bei 2-km-Quellen zeigen bis zu vier Zielkacheln auf dieselbe Datei; das
+    Zusammenfassen erledigt group_sources().
+    """
     p = PRESETS[preset]
+    if p.get('lister') == 'sn_batch':
+        return _list_sn(p)
     html = requests.get(p['base'] + '/', timeout=180).text
     files = {}
     for m in re.finditer(p['name_re'], html):
         files[(int(m.group(1)), int(m.group(2)))] = m.group(0)
     return files
+
+
+def group_sources(files):
+    """{(tx,ty): fname} -> [(fname, [(tx,ty), …])] — ein Arbeitspaket je Quelldatei.
+
+    Für 1-km-Länder (BB, NRW) enthält jedes Paket genau eine Kachel, das Verhalten
+    bleibt also unverändert. Für Sachsen bündelt das die noch fehlenden Viertel
+    einer 2-km-Datei, sodass sie nur *einmal* geladen wird.
+    """
+    groups = {}
+    for tile, fname in files.items():
+        groups.setdefault(fname, []).append(tile)
+    return [(fname, sorted(tiles)) for fname, tiles in sorted(groups.items())]
 
 
 def list_done_api(preset):
@@ -116,7 +209,14 @@ def make_grid(tif_bytes, tx, ty):
     dst = np.flipud(dst)                  # GeoTIFF north-up -> row0=Süden
     dst[~np.isfinite(dst)] = 0.0
     dst[dst < 0] = 0.0
-    return (dst * 100.0).astype('<u2')    # cm, little-endian Uint16
+    cm = dst * 100.0
+    # Uint16 in cm endet bei 655,35 m. Ohne Deckel klappt numpy stillschweigend um
+    # (1214,47 m -> 121447 cm -> 55911 cm -> 559,11 m); der Fehler sieht dann wie
+    # eine plausible Höhe aus und fällt nicht auf. Lieber sichtbar anschlagen als
+    # falsch aussehen. Betrifft alles oberhalb 655 m, also Erzgebirge, Harz,
+    # Rothaargebirge, Alpen — Brandenburg (max 201 m) bleibt unberührt.
+    np.clip(cm, 0, MAX_CM, out=cm)
+    return cm.astype('<u2')               # cm, little-endian Uint16
 
 
 def _download(url, retries=3):
@@ -160,10 +260,16 @@ def upload_via_api(preset, tx, ty, gz_bytes):
     raise last
 
 
-def process_tile(s3, bucket, preset, tx, ty, fname, upload_gz=True):
-    """Eine Kachel: laden -> Grid -> R2.
+def process_source(s3, bucket, preset, fname, targets, upload_gz=True):
+    """Eine Quelldatei -> alle daraus abzuleitenden Zielkacheln: laden -> Grid -> R2.
 
-    Zwei Wege: Liegt `UPLOAD_URL` in der Umgebung, geht die Kachel über die
+    Der Download passiert genau einmal, egal wie viele Zielkacheln aus der Datei
+    fallen. Bei 1-km-Quellen (BB, NRW) ist `targets` einelementig — dann ist das
+    Wort für Wort der alte Weg. Bei Sachsens 2-km-Kacheln schneidet make_grid()
+    aus demselben GeoTIFF nacheinander bis zu vier 1-km-Fenster; das Zielraster
+    kommt allein aus (tx, ty), deshalb braucht der Split keine eigene Geometrie.
+
+    Zwei Upload-Wege: Liegt `UPLOAD_URL` in der Umgebung, geht die Kachel über die
     Elevation-API (nur gepackt, so wie der Bestand seit 14.09.2026 aussieht).
     Sonst der klassische S3-Weg für den Cloud-Run-Betrieb.
     """
@@ -175,19 +281,27 @@ def process_tile(s3, bucket, preset, tx, ty, fname, upload_gz=True):
         tif = zf.read(inner)
     else:
         tif = content                     # NRW & Co.: GeoTIFF direkt
-    raw = make_grid(tif, tx, ty).tobytes()
-    assert len(raw) == GRID * GRID * 2, f'falsche Größe {len(raw)}'
+    del content
 
-    if os.environ.get('UPLOAD_URL'):
-        upload_via_api(preset, tx, ty, gzip.compress(raw))
-        return
+    for tx, ty in targets:
+        raw = make_grid(tif, tx, ty).tobytes()
+        assert len(raw) == GRID * GRID * 2, f'falsche Größe {len(raw)}'
 
-    base = f"{key_prefix(p['kind'])}_{p['zone']}_{tx}_{ty}"
-    s3.put_object(Bucket=bucket, Key=base + '.bin', Body=raw,
-                  ContentType='application/octet-stream')
-    if upload_gz:
-        s3.put_object(Bucket=bucket, Key=base + '.bin.gz', Body=gzip.compress(raw),
-                      ContentType='application/gzip')
+        if os.environ.get('UPLOAD_URL'):
+            upload_via_api(preset, tx, ty, gzip.compress(raw))
+            continue
+
+        base = f"{key_prefix(p['kind'])}_{p['zone']}_{tx}_{ty}"
+        s3.put_object(Bucket=bucket, Key=base + '.bin', Body=raw,
+                      ContentType='application/octet-stream')
+        if upload_gz:
+            s3.put_object(Bucket=bucket, Key=base + '.bin.gz', Body=gzip.compress(raw),
+                          ContentType='application/gzip')
+
+
+def process_tile(s3, bucket, preset, tx, ty, fname, upload_gz=True):
+    """Eine einzelne Kachel — Altweg, bleibt für Bestandsaufrufe erhalten."""
+    process_source(s3, bucket, preset, fname, [(tx, ty)], upload_gz=upload_gz)
 
 
 def bbox_km(area, zone):

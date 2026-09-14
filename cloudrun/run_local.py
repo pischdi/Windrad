@@ -82,6 +82,13 @@ def run_model(s3, preset):
         print(f"[{preset}] ✓ nichts zu tun — komplett.", flush=True)
         return
 
+    # Ein Arbeitspaket je Quelldatei. Bei 1-km-Ländern ist das 1:1 wie bisher; bei
+    # Sachsens 2-km-Kacheln teilen sich bis zu vier Zielkacheln einen Download.
+    groups = tp.group_sources({t: files[t] for t in todo})
+    if len(groups) != len(todo):
+        print(f"[{preset}] {len(groups)} Quelldateien für {len(todo)} Zielkacheln "
+              f"(Ø {len(todo)/len(groups):.2f} Kacheln je Download)", flush=True)
+
     ok = err = 0
     errors_shown = 0
     t_start = time.time()
@@ -89,29 +96,31 @@ def run_model(s3, preset):
     last_count = 0
     lock = threading.Lock()
 
-    def work(tile):
-        tx, ty = tile
-        tp.process_tile(s3, BUCKET, preset, tx, ty, files[tile], upload_gz=UPLOAD_GZ)
-        return tile
+    def work(group):
+        fname, targets = group
+        tp.process_source(s3, BUCKET, preset, fname, targets, upload_gz=UPLOAD_GZ)
+        return group
 
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        futs = {ex.submit(work, t): t for t in todo}
+        futs = {ex.submit(work, g): g for g in groups}
         try:
             for f in as_completed(futs):
-                tile = futs[f]
+                fname, targets = futs[f]
                 try:
                     f.result()
-                    ok += 1
+                    ok += len(targets)
                 except Exception as e:
-                    err += 1
+                    err += len(targets)
                     if errors_shown < 10:
-                        print(f"[{preset}]   FEHLER {tile}: {e}", flush=True)
+                        print(f"[{preset}]   FEHLER {fname} ({len(targets)} Kacheln): {e}",
+                              flush=True)
                         errors_shown += 1
 
                 n = ok + err
                 now = time.time()
-                # Fortschritt alle 25 Kacheln oder alle 30 s
-                if n % 25 == 0 or (now - t_last) >= 30:
+                # Fortschritt alle 25 Kacheln oder alle 30 s. Schwelle statt Modulo,
+                # weil ein Arbeitspaket mehrere Kacheln auf einmal zählen kann.
+                if (n - last_count) >= 25 or (now - t_last) >= 30:
                     with lock:
                         dt = max(now - t_last, 1e-6)
                         rate_win = (n - last_count) / dt * 60.0          # Kacheln/min (Fenster)

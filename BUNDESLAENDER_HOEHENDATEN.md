@@ -13,7 +13,7 @@ Cloud-Run-Pipeline (`cloudrun/tileproc.py`) tatsächlich eingebaut & lauffähig.
 |------|-----|-------------|---------------|--------|----------------|
 | **Brandenburg** | 33 | ✅ bDOM 1 m | ✅ verifiziert | ✅ | **einsatzbereit** (Vollausbau läuft) |
 | **NRW** | 32 | ✅ DOM1 1 m | ✅ verifiziert | ✅ | **einsatzbereit** (ganz NRW gebaut) |
-| Sachsen | 33 | ✅ DOM1 | ✅ (Land) | – | Preset + Batch-Download-Adapter |
+| **Sachsen** | 33 | ✅ DOM1 1 m | ✅ DGM1 1 m | ✅ `SN_DOM`/`SN_DGM` | **Adapter gebaut**, Split verifiziert · 19.354 Kacheln aus 4.981 2-km-Dateien · Vollauf offen; 5,4 % der Fläche (Erzgebirge >655 m) braucht erst die Uint16-Entscheidung |
 | Berlin | 33 | ✅ DOM1/bDOM | ✅ | – | Preset + ATOM-Adapter |
 | Mecklenburg-Vorp. | 33 | ✅ DOM1 | ✅ | – | Preset + ATOM/WCS-Adapter |
 | Sachsen-Anhalt | 32 | ✅ DOM1/bDOM | ✅ | – | Preset + Portal-Adapter |
