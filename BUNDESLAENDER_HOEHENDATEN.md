@@ -78,3 +78,88 @@ tatsächlichem Standort-Bedarf, nicht alphabetisch.
 - Bremen: https://www.geo.bremen.de/produkte/3d-produkte/hoehenmodelle-12482
 - Saarland: https://geoportal.saarland.de/app-article/geobasisdatenuebersicht/
 - Hamburg (nur DGM): https://suche.transparenz.hamburg.de/dataset/digitales-hohenmodell-hamburg-dgm-1
+
+## Beschaffungsweg je Land — gemessen
+
+**Frage:** Was führt schneller zur fertigen 1-m-Kachel — fertige Rasterkacheln (DOM/DGM als
+TIF/ZIP) oder LAZ-Punktwolken?
+
+**Ergebnis vorweg:** Raster gewinnt in **jedem** messbaren Land, mit Faktor **4× bis 35×**.
+Kein einziges Land, in dem sich der LAZ-Weg lohnt. Grund ist nicht die Rechenzeit, sondern
+die Datenmenge: LAZ ist je km² typisch **20–160× größer** als die fertige Rasterkachel.
+
+### Messbedingungen
+
+- **Datum:** 2026-09-14, ca. 16:20–18:40 Uhr MESZ, von diesem Host aus.
+- **Methode:** je Land und Weg **eine** Beispieldatei, davon nur die ersten **5 MB** per
+  HTTP-Range (`Range: bytes=0-5242879`); Rate = übertragene Bytes ÷ `time_total` (curl).
+  Gesamtgröße aus `Content-Length` bzw. `Content-Range`. Sequenziell, ≥2 s Pause zwischen
+  Abrufen, nie parallel auf dasselbe Portal. Gesamtverkehr der Messreihe: **ca. 105 MB**.
+- **⚠️ Parallele Last:** Während der gesamten Messung lief auf derselben Leitung der
+  Kachel-Runner mit **12 Verbindungen gegen `data.geobasis-bb.de`**. Konsequenz:
+  - Die **absoluten** Raten sind durchgehend **zu niedrig**.
+  - **Brandenburg ist massiv verzerrt** (0,02–0,18 MB/s statt der sonst üblichen Werte) —
+    das Land konkurriert mit dem eigenen Runner um dieselben Portal-Verbindungen.
+  - Der **Vergleich zwischen den Ländern** und vor allem der **Vergleich Raster ↔ LAZ
+    innerhalb eines Landes** bleibt gültig: beide Wege eines Landes wurden unter derselben
+    Last gemessen, das Größenverhältnis ist lastunabhängig.
+- **Rechenzeit-Annahmen** (Vorgabe aus dem Projekt): Rasterweg **+2 s** je Kachel,
+  LAZ-Weg **+35 s** je Kachel (gemessener Projektwert).
+
+### Tabelle
+
+| Land | Raster verfügbar / Größe je km² | LAZ verfügbar / Größe je km² | gemessene Rate (MB/s) | Zeit je Kachel Raster | Zeit je Kachel LAZ | Empfehlung |
+|------|-------------------------------|------------------------------|----------------------|----------------------|--------------------|------------|
+| **Brandenburg** | ✅ bDOM 1 m ZIP · **23,2 MB** (DGM 1,3 MB) | ✅ ALS `als_*.zip` · **102,5 MB** | 0,17 / 0,18 ⚠️ verzerrt | **138 s** ⚠️ | **605 s** ⚠️ | **Raster** — 4×; beide Werte durch Runner-Last aufgebläht |
+| **NRW** | ✅ DOM1/DGM1 GeoTIFF · **2,1 MB** | ✅ `3dm_*.laz` · **92,8 MB** | 2,20 / 2,53 | **3,0 s** | **72 s** | **Raster** — 24×; LAZ ist 44× größer |
+| **Bayern** | ✅ DGM1 TIF **3,0 MB** · DOM20 0,2 m **32,1 MB** | ✅ `*.laz` · **58,6 MB** | 5,61 / 6,60 | **2,5 s** (DGM) · 6,7 s (DOM20) | **44 s** | **Raster** — 17×; schnellstes Portal der Messreihe |
+| **Sachsen** | ✅ DOM1/DGM1 TIF-ZIP, 2-km-Kachel · **3,5 MB** | ✅ `lsc_*_laz.zip` · **77,5 MB** | 5,08 / 5,35 | **2,7 s** | **50 s** | **Raster** — 18× |
+| **Rheinland-Pfalz** | ✅ DOM1/DGM1 GeoTIFF · **2,0 MB** | ✅ `lpolpg_*.laz` · **323 MB** | 3,77 / 6,11 | **2,5 s** | **88 s** | **Raster** — 35×; größter Abstand aller Länder |
+| **Baden-Württemberg** | ✅ DOM1/DGM1 ZIP, 2-km-Kachel · **3,2 MB** | ❌ nicht im OpenGeoData-Portal | 3,53 | **2,9 s** | – | **Raster** — alternativlos |
+| **Thüringen** | ✅ DOM1/DGM1 ZIP · **8,8 MB** | 🟡 im Client angeboten, kein statischer Pfad | 3,88 / 4,48 | **4,3 s** | nicht messbar | **Raster** |
+| **Mecklenburg-Vorp.** | ✅ DOM1 XYZ-ZIP, 2-km-Kachel · **4,0 MB** | ❌ `als_download` → **HTTP 401** (Basic-Auth) | 7,80 | **2,5 s** | – | **Raster** — LAZ nicht offen |
+| **Berlin** | ✅ DOM1 ZIP, 2-km-Kachel · **0,19 MB** | 🟡 nur Sektorpakete (`Mitte.zip` = **36,7 GB**) | 1,19 / 2,82 | **2,2 s** | nicht je Kachel möglich | **Raster** — LAZ nur als Riesenbündel |
+| **Hamburg** | 🟡 nur DGM, nur Gesamtpaket **2,95 GB** (≈3,7 MB/km²) | ❌ kein offenes LAZ | 5,61 | **2,7 s** (amortisiert) | – | **Raster (DGM)** — DOM fehlt weiterhin |
+| Niedersachsen | ❓ nicht direkt messbar | ❓ nicht direkt messbar | – | – | – | erst Adapter, dann messen |
+| Schleswig-Holstein | ❓ nicht direkt messbar | ❓ nicht direkt messbar | – | – | – | erst Adapter, dann messen |
+| Sachsen-Anhalt | ❓ nicht direkt messbar | ❓ nicht direkt messbar | – | – | – | erst Adapter, dann messen |
+| Hessen | ❓ nicht direkt messbar | ❓ nicht direkt messbar | – | – | – | erst Adapter, dann messen |
+| Bremen | ❓ nicht direkt messbar | ❓ nicht direkt messbar | – | – | – | erst Adapter, dann messen |
+| Saarland | ❓ nicht direkt messbar | ❓ nicht direkt messbar | – | – | – | erst Adapter, dann messen |
+
+Größen sind **MiB je km²**, aus `Content-Length`/`Content-Range` der Beispieldatei; bei
+2-km-Kacheln durch 4 geteilt. NRW-Größen sind Mittelwerte über je 300 Dateien aus dem
+XML-Listing, alle übrigen Einzelmessungen (Stichprobe von einer Kachel — Bewuchs und
+Bebauung streuen, ±50 % sind normal).
+
+### Was nicht messbar war — und warum
+
+| Land | Mechanismus | Was ein Adapter bräuchte |
+|------|-------------|--------------------------|
+| **Niedersachsen** | Angular-SPA über S3/COS-Bucket. Statische Indizes existieren nur für DOP/LoD1/LoD2 (`pro-download-indices/*.geojson`), **nicht** für DGM1/DOM1/bDOM20. Der im SPA hinterlegte Shop-Einstieg (`geobasisdaten.niedersachsen.de/shop?do=opendata`) liefert **404**. | Kachel-Auswahl im Portal nachbauen oder LGLN nach dem Höhendaten-Index fragen |
+| **Schleswig-Holstein** | gaialight-Download-Client. `single.php?file=bDOM_SH_Massendownload` liefert **1 Byte** ohne Session; echte Dateilisten kommen aus `_ajax/kachelsuche.php` / `multi.php` mit Sitzungskontext. | AJAX-Kachelsuche nachbauen (POST mit Kachel-/Polygonparametern) |
+| **Thüringen (nur LAZ)** | DGM/DOM liegen als statische ZIPs unter `/hoehendaten/…` und sind über ATOM auflistbar — **für LAZ existiert kein ATOM-Feed** (`atom_th_hoehendaten_laz` → „internal error1"), Verzeichnislisting ist 403. | dieselbe Kachelsuche wie SH (identischer Client) |
+| **Sachsen-Anhalt** | Keine Direktlinks auf den LVermGeo-Seiten; Abgabe läuft über das Geodatenportal (`geodatenportal.sachsen-anhalt.de/gfds`) mit Auswahl-/Bestellstrecke. | Portal-Session + Bestellvorgang, oder Anfrage beim LVermGeo |
+| **Hessen** | Intershop-Downloadcenter (`gds.hessen.de/INTERSHOP/…`) — Warenkorb-Logik mit Sitzung. | Intershop-Session nachbauen; unverhältnismäßig, besser Direktanfrage HLBG |
+| **Bremen** | `geo.bremen.de` ist eine reine Produktbeschreibung ohne Downloadlinks; `gdi2.geo.bremen.de` antwortet **403**, `geoportal.bremen.de` löst nicht auf. | Bulk-Mechanik beim Landesamt erfragen (stand schon als To-do) |
+| **Saarland** | Nur Viewer-Links (`geoportal.saarland.de/map?LAYER[...]`); der INSPIRE-Feed verlangt `type=DATASET|SERVICE` und liefert für Höhendaten keinen Kacheleinstieg. | Feed mit korrektem Dataset-Parameter durchsuchen; Anfrage LVGL liegt ohnehin bereit |
+| **Berlin (nur LAZ)** | ALS existiert offen, aber ausschließlich als Sektorpakete (`Nord/Mitte/Süd.zip`), `Mitte.zip` allein **36,7 GB**. | Einmal-Bulk-Import statt On-Demand — lohnt nur bei Vollausbau Berlin |
+| **Mecklenburg-Vorp. (nur LAZ)** | `als_download` antwortet **HTTP 401, `WWW-Authenticate: Basic realm="als_download"`** — Punktwolken sind nicht offen. | Zugangsdaten beim LAiV beantragen; für DOM/DGM nicht nötig |
+| **Baden-Württemberg (nur LAZ)** | Im OpenGeoData-Portal sind 20 Produkte hinterlegt, **keine Punktwolke**; `/data/las/`, `/data/laz/`, `/data/lidar/` sind 404. | Punktwolken beim LGL kostenpflichtig anfragen — für unseren Zweck irrelevant |
+
+### Konsequenz für die Pipeline
+
+1. **Kein LAZ-Adapter bauen.** Der LAZ-Weg ist in keinem Land konkurrenzfähig. Die 35 s
+   Rechenzeit sind dabei nicht einmal das Hauptproblem — schon der reine Download der
+   Punktwolke dauert überall länger als der komplette Rasterweg inklusive Rechnen.
+2. **Reihenfolge der nächsten Presets nach Messwert**, nicht alphabetisch: Bayern (2,5 s),
+   MV (2,5 s), RLP (2,5 s), Sachsen (2,7 s), BW (2,9 s) sind die günstigsten Direktzugänge
+   und brauchen alle nur einen simplen HTTP-Adapter.
+3. **Brandenburg-Durchsatz ist ein Leitungsproblem, kein Formatproblem.** 138 s je Kachel
+   entstehen durch die 12 parallelen Runner-Verbindungen, nicht durch das Portal. Nach
+   Abschluss des Vollausbaus neu messen, bevor daraus Schlüsse gezogen werden.
+4. **Neu belegte Zugänge** (bisher als „Adapter nötig" geführt, tatsächlich simples HTTP):
+   Sachsen (Nextcloud-WebDAV, feste Share-IDs), RLP (offenes Verzeichnis `geobasis-rlp.de/data/`),
+   Bayern (`poly2metalink`-POST → direkte `bayernwolke.de`-URLs), Thüringen (statische ZIPs
+   unter `/hoehendaten/`), Berlin und MV (ATOM-Feeds mit Direktlinks). Das sind **6 Länder**,
+   die deutlich billiger zu integrieren sind als in der Tabelle oben angenommen.
