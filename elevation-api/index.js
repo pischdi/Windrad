@@ -944,7 +944,8 @@ async function countTiles(env) {
       out.objects++; out.bytes += o.size;
       const m = /^(tile|dgm)_(32|33)_/.exec(o.key);
       const g = m ? `${m[1] === 'tile' ? 'dom' : 'dgm'}_${m[2]}` : 'sonstige';
-      out.groups[g] = (out.groups[g] || 0) + 1;
+      const e = out.groups[g] || (out.groups[g] = { n: 0, bytes: 0 });
+      e.n++; e.bytes += o.size;
     }
     cursor = res.truncated ? res.cursor : undefined;
     if (!cursor) break;
@@ -1466,13 +1467,69 @@ function zeichne(d){
   h += '<div class="gross">'+zahl(c.objects)+'</div><div class="sub">Kacheln &middot; '
      + ((c.bytes||0)/1e9).toFixed(1).replace('.',',')+' GB</div>';
   Object.keys(namen).forEach(k => {
-    if (g[k] !== undefined) h += '<div class="zeile"><span>'+namen[k]+'</span><b>'+zahl(g[k])+'</b></div>';
+    if (g[k] !== undefined) {
+      const gb = (g[k].bytes/1e9).toFixed(1).replace('.',',');
+      h += '<div class="zeile"><span>'+namen[k]+'</span><b>'+zahl(g[k].n)+' <span class="grau">· '+gb+' GB</span></b></div>';
+    }
   });
   h += '<div class="zeile"><span>Stand der Zählung</span><b>'+alterText(new Date(c.at).toISOString())+'</b></div>';
   h += '</div>';
 
+  h += kostenKarte(c, r);
+
   $('inhalt').innerHTML = h;
   $('uhr').textContent = new Date().toLocaleTimeString('de-DE');
+}
+
+// Preise Cloudflare R2, Stand 09/2026 — vor einer Zusage an Kunden im
+// Dashboard gegenpruefen, Cloudflare aendert sie gelegentlich.
+const PREIS = { speicherProGbMonat: 0.015, freiGb: 10, schreibenProMio: 4.50, workersBezahlt: 5.00 };
+const KURS = 0.92;                         // grobe Umrechnung Dollar -> Euro
+const eur = (d) => (d*KURS).toFixed(2).replace('.',',') + ' €';
+
+function kostenKarte(c, r){
+  const gb = (c.bytes||0)/1e9;
+  const zahlbar = Math.max(0, gb - PREIS.freiGb);
+  const proMonat = zahlbar * PREIS.speicherProGbMonat;
+  const schnitt = c.objects ? c.bytes/c.objects : 0;
+
+  let h = '<div class="karte"><h2>Speicher und Kosten</h2>';
+  h += '<div class="zeile"><span>Belegt</span><b>'+gb.toFixed(1).replace('.',',')+' GB</b></div>';
+  h += '<div class="zeile"><span>davon kostenpflichtig</span><b>'+zahlbar.toFixed(1).replace('.',',')+' GB <span class="grau">(10 GB frei)</span></b></div>';
+  h += '<div class="zeile"><span>Ø je Kachel</span><b>'+(schnitt/1e6).toFixed(2).replace('.',',')+' MB</b></div>';
+  h += '<div class="zeile"><span>Speicher je Monat</span><b>'+eur(proMonat)+'</b></div>';
+  h += '<div class="zeile"><span>Ausgehender Verkehr</span><b class="gruen">0 €</b></div>';
+
+  // Was der laufende Aufbau noch dazulegt
+  if (r && r.gesamt && r.fertig !== null && schnitt) {
+    const offen = Math.max(0, r.gesamt - r.fertig);
+    const dazu = offen * schnitt / 1e9;
+    const nachher = gb + dazu;
+    const nachherMonat = Math.max(0, nachher - PREIS.freiGb) * PREIS.speicherProGbMonat;
+    h += '<div class="zeile" style="border-top:1px solid #2c3036;margin-top:6px;padding-top:10px">'
+       + '<span>Noch offen ('+(r.modell||'Lauf')+')</span><b>'+zahl(offen)+' Kacheln · +'+dazu.toFixed(1).replace('.',',')+' GB</b></div>';
+    h += '<div class="zeile"><span>Danach belegt</span><b>'+nachher.toFixed(1).replace('.',',')+' GB</b></div>';
+    h += '<div class="zeile"><span>Danach je Monat</span><b>'+eur(nachherMonat)+'</b></div>';
+    // Schreibvorgaenge: je Kachel eine Ablage, Klasse A
+    h += '<div class="zeile"><span>Einmalig fürs Hochladen</span><b>'+eur(offen/1e6*PREIS.schreibenProMio)+'</b></div>';
+  }
+
+  // Ausblick: ganz Deutschland, beide Modelle
+  if (schnitt) {
+    const deutschlandKacheln = 357600 * 2;
+    const dGb = deutschlandKacheln * schnitt / 1e9;
+    h += '<div class="zeile" style="border-top:1px solid #2c3036;margin-top:6px;padding-top:10px">'
+       + '<span>Ganz Deutschland (DOM+DGM)</span><b>'+Math.round(dGb).toLocaleString('de-DE')+' GB</b></div>';
+    h += '<div class="zeile"><span>Das je Monat</span><b>'+eur(Math.max(0,dGb-PREIS.freiGb)*PREIS.speicherProGbMonat)+'</b></div>';
+  }
+
+  h += '<div class="zeile"><span>Workers, falls bezahlter Tarif</span><b>'+eur(PREIS.workersBezahlt)+' / Monat</b></div>';
+  h += '<div class="meta" style="color:#9aa0a6;font-size:12px;margin-top:8px">'
+     + 'Gerechnet mit '+PREIS.speicherProGbMonat.toFixed(3).replace('.',',')+' $ je GB und Monat, '
+     + 'Kurs '+KURS+'. Ausgehender Verkehr ist bei R2 kostenlos. Lesezugriffe sind hier nicht enthalten, '
+     + 'die fallen erst bei echter Nutzung ins Gewicht.</div>';
+  h += '</div>';
+  return h;
 }
 
 async function laden(){
