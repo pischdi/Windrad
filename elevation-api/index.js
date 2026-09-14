@@ -72,7 +72,7 @@ export default {
       // die Seite eingesetzt, damit deren eigene Abrufe ihn mitschicken.
       const INTERNAL = ['/gefaelle', '/losspinne', '/losspinne/sites.json', '/admin'];
       if (INTERNAL.includes(url.pathname)) {
-        const gate = await authAndRateLimit(request, env, { requireKey: true });
+        const gate = await authAndRateLimit(request, env, { requireKey: true, requireInternal: true });
         if (gate) return gate;
 
         if (url.pathname === '/losspinne/sites.json') {
@@ -126,6 +126,9 @@ export default {
       }
       if (url.pathname === '/v1/tiles') {
         return await handleTileList(url, env);
+      }
+      if (url.pathname === '/v1/keys') {
+        return await handleKeys(request, url, env);
       }
       if (url.pathname === '/v1/status') {
         return request.method === 'PUT'
@@ -222,6 +225,19 @@ async function authAndRateLimit(request, env, opts = {}) {
       // Kontingent zuständig.
       const originGate = enforceKeyOrigin(request, record);
       if (originGate) return originGate;
+
+      let daten = null;
+      try { daten = JSON.parse(record); } catch { /* Alt-Datensatz ohne JSON */ }
+      if (daten?.gesperrt) {
+        return json({ error: 'API key is revoked', code: 'KEY_REVOKED' }, 403);
+      }
+      if (daten?.ablauf && Date.parse(daten.ablauf) < Date.now()) {
+        return json({ error: 'API key expired', code: 'KEY_EXPIRED' }, 403);
+      }
+      // Interne Seiten und die Schluesselverwaltung sind Kundenschluesseln verwehrt.
+      if (opts.requireInternal && daten?.tier !== 'internal') {
+        return json({ error: 'Internal key required', code: 'FORBIDDEN' }, 403);
+      }
     }
     if (env.RL_KEY) {
       const { success } = await env.RL_KEY.limit({ key: apiKey });
@@ -797,6 +813,86 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
 }
 
 /**
+ * Schlüsselverwaltung — nur mit internem Schlüssel erreichbar.
+ *
+ *   GET    /v1/keys              alle Schlüssel mit Stammdaten
+ *   POST   /v1/keys              neuen anlegen (JSON im Rumpf), gibt ihn EINMAL zurück
+ *   DELETE /v1/keys?key=…        endgültig löschen
+ *   POST   /v1/keys?sperren=…    sperren oder wieder freigeben
+ *
+ * Die Schlüssel liegen im KV neben dem Worker: Die Prüfung läuft damit am
+ * nächstgelegenen Cloudflare-Standort, ohne Datenbank dahinter.
+ */
+async function handleKeys(request, url, env) {
+  const gate = await authAndRateLimit(request, env, { requireKey: true, requireInternal: true });
+  if (gate) return gate;
+  if (!env.API_KEYS) throw apiError('KV-Binding fehlt', 503, 'NO_KV');
+
+  if (request.method === 'GET') {
+    const liste = await env.API_KEYS.list({ limit: 1000 });
+    const keys = [];
+    for (const k of liste.keys) {
+      let d = {};
+      try { d = JSON.parse(await env.API_KEYS.get(k.name)) || {}; } catch { /* Alt-Datensatz */ }
+      keys.push({
+        key: k.name,
+        name: d.name ?? null, firma: d.firma ?? null, kontakt: d.kontakt ?? null,
+        tier: d.tier ?? null, origins: d.origins ?? null, notiz: d.notiz ?? null,
+        erstellt: d.erstellt ?? null, ablauf: d.ablauf ?? null, gesperrt: !!d.gesperrt,
+      });
+    }
+    keys.sort((a, b) => String(b.erstellt ?? '').localeCompare(String(a.erstellt ?? '')));
+    return json({ keys });
+  }
+
+  if (request.method === 'DELETE') {
+    const key = url.searchParams.get('key');
+    if (!key) return json({ error: 'key fehlt', code: 'BAD_REQUEST' }, 400);
+    if (key === resolveKey(request, url)) {
+      return json({ error: 'Der gerade benutzte Schluessel kann nicht geloescht werden', code: 'SELF_DELETE' }, 400);
+    }
+    await env.API_KEYS.delete(key);
+    return json({ geloescht: key });
+  }
+
+  if (request.method === 'POST') {
+    const sperren = url.searchParams.get('sperren');
+    if (sperren) {
+      const roh = await env.API_KEYS.get(sperren);
+      if (!roh) return json({ error: 'unbekannter Schluessel', code: 'NOT_FOUND' }, 404);
+      let d = {};
+      try { d = JSON.parse(roh) || {}; } catch { d = { name: 'Alt-Datensatz' }; }
+      d.gesperrt = !d.gesperrt;
+      await env.API_KEYS.put(sperren, JSON.stringify(d));
+      return json({ key: sperren, gesperrt: d.gesperrt });
+    }
+
+    const b = await request.json().catch(() => ({}));
+    if (!b.name) return json({ error: 'name ist Pflicht', code: 'BAD_REQUEST' }, 400);
+    const tier = ['kunde', 'frontend', 'intern', 'test'].includes(b.tier) ? b.tier : 'kunde';
+    const roh = crypto.getRandomValues(new Uint8Array(16));
+    const hex = [...roh].map((v) => v.toString(16).padStart(2, '0')).join('');
+    const key = `ek_${tier === 'intern' ? 'int' : tier.slice(0, 2)}_${hex}`;
+    const datensatz = {
+      name: String(b.name).slice(0, 120),
+      firma: b.firma ? String(b.firma).slice(0, 120) : null,
+      kontakt: b.kontakt ? String(b.kontakt).slice(0, 120) : null,
+      notiz: b.notiz ? String(b.notiz).slice(0, 300) : null,
+      // "intern" bewusst auf den Wert abbilden, den die Rollenpruefung kennt.
+      tier: tier === 'intern' ? 'internal' : tier,
+      origins: Array.isArray(b.origins) && b.origins.length ? b.origins.slice(0, 10) : undefined,
+      ablauf: b.ablauf || null,
+      erstellt: new Date().toISOString(),
+      gesperrt: false,
+    };
+    await env.API_KEYS.put(key, JSON.stringify(datensatz));
+    return json({ key, ...datensatz, hinweis: 'Der Schluessel wird nur jetzt angezeigt.' });
+  }
+
+  return json({ error: 'Methode nicht erlaubt', code: 'METHOD_NOT_ALLOWED' }, 405);
+}
+
+/**
  * PUT /v1/status — Lagemeldung des lokalen Runners ablegen.
  *
  * Der Rechner zu Hause schickt im Minutentakt, wie weit er ist. Damit sieht man
@@ -1279,12 +1375,44 @@ const ADMIN_HTML = `<!doctype html>
   .gruen { color:#5bcc7d; } .gelb { color:#e3b341; } .rot { color:#f2716b; } .grau { color:#9aa0a6; }
   code { background:#24272c; padding:1px 5px; border-radius:4px; font-size:12px; }
   #stand { color:#9aa0a6; font-size:12px; margin-top:14px; }
+  input, select, button { font:inherit; padding:9px 10px; border-radius:8px;
+      border:1px solid #2c3036; background:#14161a; color:#e8eaed; width:100%; box-sizing:border-box; }
+  button { background:#2a4a7c; border-color:#35538a; cursor:pointer; }
+  button:active { background:#22406c; }
+  .kbox { border:1px solid #2c3036; border-radius:8px; padding:9px; margin-bottom:8px; }
+  .kbox .kopf { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .kbox .meta { color:#9aa0a6; font-size:12px; margin-top:3px; }
+  .kbox button { width:auto; padding:5px 10px; font-size:12px; margin-top:8px; margin-right:6px; }
+  .schl { font-family:ui-monospace,monospace; font-size:12px; word-break:break-all; color:#4a9eff; }
 </style>
 </head>
 <body>
 <h1>Bestand und Runner</h1>
 <div class="sub">aktualisiert sich alle 30 Sekunden &middot; <span id="uhr">—</span></div>
 <div id="inhalt">Lade&nbsp;…</div>
+<div class="karte">
+  <h2>Schlüssel</h2>
+  <div id="keys">—</div>
+  <details style="margin-top:12px">
+    <summary style="cursor:pointer;color:#4a9eff">Neuen Schlüssel anlegen</summary>
+    <div style="margin-top:10px;display:grid;gap:8px">
+      <input id="f_name"    placeholder="Name / Ansprechpartner (Pflicht)"/>
+      <input id="f_firma"   placeholder="Firma"/>
+      <input id="f_kontakt" placeholder="E-Mail"/>
+      <input id="f_notiz"   placeholder="Notiz, z. B. Projekt oder Vereinbarung"/>
+      <input id="f_origins" placeholder="Domainbindung, z. B. https://kunde.de (leer = überall)"/>
+      <select id="f_tier">
+        <option value="kunde">Kunde</option>
+        <option value="frontend">Frontend (Webseite, an Domain gebunden)</option>
+        <option value="test">Test</option>
+        <option value="intern">Intern (darf auch diese Seite)</option>
+      </select>
+      <input id="f_ablauf" type="date"/>
+      <button id="f_anlegen">Anlegen</button>
+      <div id="f_ergebnis"></div>
+    </div>
+  </details>
+</div>
 <div id="stand"></div>
 <input id="apiKey" type="hidden"/>
 <script>
@@ -1357,7 +1485,64 @@ async function laden(){
     $('stand').textContent = 'Abruf fehlgeschlagen: ' + e.message;
   }
 }
-laden();
+
+function escape(t){ return String(t ?? '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+
+async function keysLaden(){
+  try {
+    const r = await fetch('/v1/keys');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (!d.keys.length) { $('keys').innerHTML = '<span class="grau">Noch keine Schlüssel.</span>'; return; }
+    $('keys').innerHTML = d.keys.map(k => {
+      const zustand = k.gesperrt ? '<b class="rot">gesperrt</b>'
+        : (k.ablauf && Date.parse(k.ablauf) < Date.now()) ? '<b class="gelb">abgelaufen</b>'
+        : '<b class="gruen">aktiv</b>';
+      const teile = [k.firma, k.kontakt, k.tier, k.origins ? 'nur ' + k.origins.join(', ') : null,
+                     k.ablauf ? 'bis ' + k.ablauf : null, k.notiz]
+                    .filter(Boolean).map(escape).join(' · ');
+      return '<div class="kbox">'
+        + '<div class="kopf"><span><b>' + escape(k.name || '(ohne Namen)') + '</b></span>' + zustand + '</div>'
+        + '<div class="schl">' + escape(k.key) + '</div>'
+        + (teile ? '<div class="meta">' + teile + '</div>' : '')
+        + '<button onclick="sperren(\'' + k.key + '\')">' + (k.gesperrt ? 'freigeben' : 'sperren') + '</button>'
+        + '<button onclick="loeschen(\'' + k.key + '\')">löschen</button>'
+        + '</div>';
+    }).join('');
+  } catch(e){ $('keys').innerHTML = '<span class="rot">Schlüssel laden fehlgeschlagen: ' + e.message + '</span>'; }
+}
+
+async function sperren(key){
+  await fetch('/v1/keys?sperren=' + encodeURIComponent(key), {method:'POST'});
+  keysLaden();
+}
+async function loeschen(key){
+  if (!confirm('Schlüssel ' + key + ' endgültig löschen? Der Zugang ist danach sofort tot.')) return;
+  const r = await fetch('/v1/keys?key=' + encodeURIComponent(key), {method:'DELETE'});
+  if (!r.ok) alert('Löschen fehlgeschlagen: ' + (await r.text()));
+  keysLaden();
+}
+
+$('f_anlegen').onclick = async () => {
+  const origins = $('f_origins').value.trim();
+  const koerper = {
+    name: $('f_name').value.trim(), firma: $('f_firma').value.trim(),
+    kontakt: $('f_kontakt').value.trim(), notiz: $('f_notiz').value.trim(),
+    tier: $('f_tier').value, ablauf: $('f_ablauf').value || null,
+    origins: origins ? origins.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+  };
+  if (!koerper.name) { alert('Name ist Pflicht'); return; }
+  const r = await fetch('/v1/keys', {method:'POST', headers:{'Content-Type':'application/json'},
+                                     body: JSON.stringify(koerper)});
+  const d = await r.json();
+  if (!r.ok) { $('f_ergebnis').innerHTML = '<span class="rot">' + escape(d.error) + '</span>'; return; }
+  $('f_ergebnis').innerHTML = '<div class="kbox"><div class="meta">Angelegt — jetzt kopieren, '
+    + 'später ist er nicht mehr im Klartext nötig:</div><div class="schl">' + escape(d.key) + '</div></div>';
+  ['f_name','f_firma','f_kontakt','f_notiz','f_origins'].forEach(i => $(i).value = '');
+  keysLaden();
+};
+
+laden(); keysLaden();
 setInterval(laden, 30000);
 </script>
 </body>
