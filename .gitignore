@@ -118,3 +118,4 @@ cloudrun/.env
 cloudrun/*.log
 cloudrun/.guard.pid
 cloudrun/.runner.pid
+cloudrun/.freigabe
