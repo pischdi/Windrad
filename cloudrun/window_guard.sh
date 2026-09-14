@@ -21,8 +21,11 @@ CHECK_INTERVAL=60
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$GUARD_LOG"; }
 
+# Ausdrueckliche Freigabe durch Pischdi: Datei .freigabe haelt das Fenster offen,
+# unabhaengig von Uhrzeit und Wochentag. Loeschen = zurueck zur Regel.
 in_window() {
   local dow hour
+  [ -f .freigabe ] && return 0
   dow=$(date +%u)   # 1=Mo .. 7=So
   hour=$(date +%H)
   hour=$((10#$hour))
@@ -43,8 +46,11 @@ start_runner() {
   if runner_pid >/dev/null; then return 0; fi
   if [ ! -f .env ]; then log "START ABGEBROCHEN: .env fehlt"; return 1; fi
   set -a; . ./.env; set +a
-  if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
-    log "START ABGEBROCHEN: R2-Schluessel fehlen in .env"; return 1
+  # Zwei Betriebsarten: Upload ueber die Elevation-API (kein S3 noetig) oder klassisch mit R2-Schluesseln.
+  if [ -n "${UPLOAD_URL:-}" ]; then
+    if [ -z "${UPLOAD_KEY:-}" ]; then log "START ABGEBROCHEN: UPLOAD_KEY fehlt in .env"; return 1; fi
+  elif [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+    log "START ABGEBROCHEN: weder UPLOAD_URL noch R2-Schluessel in .env"; return 1
   fi
   setsid nohup .venv/bin/python -u run_local.py >> "$RUN_LOG" 2>&1 &
   echo $! > "$RUN_PID_FILE"
@@ -77,6 +83,9 @@ loop() {
     else
       runner_pid >/dev/null && stop_runner
     fi
+    # Lagemeldung fuer die Admin-Seite (fehlschlagen darf sie, ohne dass der
+    # Waechter stehen bleibt — der Runner ist wichtiger als die Anzeige).
+    [ -x ./status_push.sh ] && ./status_push.sh >/dev/null 2>&1 || true
     sleep "$CHECK_INTERVAL"
   done
 }
@@ -107,5 +116,13 @@ case "${1:-start}" in
     if pid=$(runner_pid); then echo "Runner:   laeuft (PID $pid)"; else echo "Runner:   gestoppt"; fi
     if in_window; then echo "Fenster:  offen (Runner soll laufen)"; else echo "Fenster:  zu (Runner soll pausieren)"; fi
     ;;
-  *) echo "Nutzung: $0 {start|fg|stop|status}"; exit 2 ;;
+  frei)
+    touch .freigabe
+    echo "Freigabe gesetzt — Runner laeuft jetzt unabhaengig vom Zeitfenster."
+    ;;
+  normal)
+    rm -f .freigabe
+    echo "Freigabe aufgehoben — es gilt wieder Mo-Fr 18:00-07:00 / Wochenende."
+    ;;
+  *) echo "Nutzung: $0 {start|fg|stop|status|frei|normal}"; exit 2 ;;
 esac

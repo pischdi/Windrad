@@ -70,7 +70,7 @@ export default {
       // Ein Browser kann bei einem Seitenaufruf keinen Header setzen, deshalb
       // wird der Schlüssel hier auch als `?k=…` akzeptiert und anschließend in
       // die Seite eingesetzt, damit deren eigene Abrufe ihn mitschicken.
-      const INTERNAL = ['/gefaelle', '/losspinne', '/losspinne/sites.json'];
+      const INTERNAL = ['/gefaelle', '/losspinne', '/losspinne/sites.json', '/admin'];
       if (INTERNAL.includes(url.pathname)) {
         const gate = await authAndRateLimit(request, env, { requireKey: true });
         if (gate) return gate;
@@ -81,7 +81,9 @@ export default {
                        'Cache-Control': 'no-cache' },
           });
         }
-        const page = url.pathname === '/gefaelle' ? GEFAELLE_HTML : LOSSPINNE_HTML;
+        const page = url.pathname === '/gefaelle' ? GEFAELLE_HTML
+          : url.pathname === '/admin' ? ADMIN_HTML
+          : LOSSPINNE_HTML;
         return new Response(withKey(page, resolveKey(request, url)), {
           headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8',
                      'Cache-Control': 'no-store' },
@@ -124,6 +126,11 @@ export default {
       }
       if (url.pathname === '/v1/tiles') {
         return await handleTileList(url, env);
+      }
+      if (url.pathname === '/v1/status') {
+        return request.method === 'PUT'
+          ? await handleStatusPut(request, env)
+          : await handleStatusGet(env);
       }
 
       return json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
@@ -790,6 +797,68 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
 }
 
 /**
+ * PUT /v1/status — Lagemeldung des lokalen Runners ablegen.
+ *
+ * Der Rechner zu Hause schickt im Minutentakt, wie weit er ist. Damit sieht man
+ * den Fortschritt auch von unterwegs, ohne Fernwartung auf die Maschine.
+ */
+async function handleStatusPut(request, env) {
+  if (!env.STATUS) throw apiError('STATUS-Binding fehlt', 503, 'NO_KV');
+  const body = await request.text();
+  if (body.length > 20000) return json({ error: 'zu gross', code: 'BAD_REQUEST' }, 400);
+  try { JSON.parse(body); } catch { return json({ error: 'kein JSON', code: 'BAD_REQUEST' }, 400); }
+  await env.STATUS.put('runner', body, { metadata: { at: Date.now() } });
+  return json({ ok: true });
+}
+
+/** GET /v1/status — Lagemeldung plus gezaehlter Bestand. */
+async function handleStatusGet(env) {
+  const raw = env.STATUS ? await env.STATUS.get('runner') : null;
+  const runner = raw ? JSON.parse(raw) : null;
+  return json({ runner, counts: await countTiles(env), now: new Date().toISOString() });
+}
+
+/**
+ * Zaehlt den Bestand je Modell und Zone.
+ *
+ * Das Durchblaettern von zehntausenden Schluesseln ist zu teuer fuer jeden
+ * Seitenaufruf, deshalb wird das Ergebnis 5 Minuten zwischengespeichert.
+ */
+async function countTiles(env) {
+  if (!env.TILES) return null;
+
+  if (env.STATUS) {
+    const fertig = await env.STATUS.get('counts');
+    if (fertig) {
+      const c = JSON.parse(fertig);
+      // Nur vollstaendige Zaehlungen wiederverwenden — ein abgebrochener Stand
+      // wuerde sich sonst fuenf Minuten lang als Wahrheit ausgeben.
+      if (c.complete && Date.now() - c.at < 300000) return c;
+    }
+  }
+
+  // In einem Rutsch durchzaehlen. Eine Seite fasst 1000 Schluessel, der
+  // Bestand liegt bei knapp 90.000 — die 200 Runden reichen also mit Reserve
+  // und bleiben unter der Grenze fuer Unteraufrufe je Anfrage.
+  const out = { at: Date.now(), groups: {}, bytes: 0, objects: 0, complete: true };
+  let cursor;
+  for (let i = 0; i < 200; i++) {
+    const res = await env.TILES.list({ limit: 1000, cursor });
+    for (const o of res.objects) {
+      out.objects++; out.bytes += o.size;
+      const m = /^(tile|dgm)_(32|33)_/.exec(o.key);
+      const g = m ? `${m[1] === 'tile' ? 'dom' : 'dgm'}_${m[2]}` : 'sonstige';
+      out.groups[g] = (out.groups[g] || 0) + 1;
+    }
+    cursor = res.truncated ? res.cursor : undefined;
+    if (!cursor) break;
+  }
+  out.complete = !cursor;
+  if (env.STATUS && out.complete) await env.STATUS.put('counts', JSON.stringify(out));
+  return out;
+}
+
+/**
  * GET /v1/tiles?model=dgm&zone=33[&cursor=…]
  *
  * Listet die bereits vorhandenen Kacheln eines Modells als "x_y" auf. Der
@@ -1178,6 +1247,122 @@ function buildOpenApi(origin) {
 }
 
 /** Doku-Seite (Redoc, lädt /openapi.json). */
+
+// ---------------------------------------------------------------------------
+// Admin-Seite: Lage auf einen Blick, auch vom Handy im Zug.
+// Holt sich /v1/status (Schluessel kommt aus dem injizierten fetch-Wrapper)
+// und aktualisiert sich alle 30 Sekunden selbst.
+// ---------------------------------------------------------------------------
+const ADMIN_HTML = `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Admin — Bestand und Runner</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; padding:16px; background:#14161a; color:#e8eaed;
+         font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  .sub { color:#9aa0a6; font-size:13px; margin-bottom:16px; }
+  .karte { background:#1d2025; border:1px solid #2c3036; border-radius:10px;
+           padding:14px; margin-bottom:12px; }
+  .karte h2 { font-size:14px; margin:0 0 10px; color:#9aa0a6; font-weight:600;
+              text-transform:uppercase; letter-spacing:.04em; }
+  .zeile { display:flex; justify-content:space-between; gap:12px; padding:5px 0;
+           border-bottom:1px solid #24272c; }
+  .zeile:last-child { border-bottom:0; }
+  .zeile b { font-variant-numeric:tabular-nums; font-weight:600; }
+  .balken { height:8px; background:#2c3036; border-radius:4px; overflow:hidden; margin:10px 0 6px; }
+  .balken i { display:block; height:100%; background:#4a9eff; }
+  .gross { font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .gruen { color:#5bcc7d; } .gelb { color:#e3b341; } .rot { color:#f2716b; } .grau { color:#9aa0a6; }
+  code { background:#24272c; padding:1px 5px; border-radius:4px; font-size:12px; }
+  #stand { color:#9aa0a6; font-size:12px; margin-top:14px; }
+</style>
+</head>
+<body>
+<h1>Bestand und Runner</h1>
+<div class="sub">aktualisiert sich alle 30 Sekunden &middot; <span id="uhr">—</span></div>
+<div id="inhalt">Lade&nbsp;…</div>
+<div id="stand"></div>
+<input id="apiKey" type="hidden"/>
+<script>
+const $ = (id) => document.getElementById(id);
+const zahl = (n) => (n === null || n === undefined) ? '—' : n.toLocaleString('de-DE');
+
+function alterText(iso){
+  if(!iso) return '—';
+  const s = Math.round((Date.now() - new Date(iso).getTime())/1000);
+  if (s < 90) return 'vor ' + s + ' s';
+  if (s < 5400) return 'vor ' + Math.round(s/60) + ' min';
+  return 'vor ' + Math.round(s/3600) + ' h';
+}
+
+function zeichne(d){
+  const r = d.runner, c = d.counts || {groups:{}};
+  let h = '';
+
+  // Runner
+  h += '<div class="karte"><h2>Runner</h2>';
+  if (!r) {
+    h += '<div class="grau">Noch keine Meldung eingegangen.</div>';
+  } else {
+    const alt = (Date.now() - new Date(r.at).getTime()) / 1000;
+    const frisch = alt < 180;
+    const laeuft = r.runner_laeuft;
+    const farbe = !frisch ? 'rot' : (laeuft ? 'gruen' : 'gelb');
+    const text  = !frisch ? 'Meldung veraltet' : (laeuft ? 'läuft' : 'pausiert');
+    h += '<div class="zeile"><span>Zustand</span><b class="'+farbe+'">'+text+'</b></div>';
+    h += '<div class="zeile"><span>Modell</span><b>'+(r.modell||'—')+'</b></div>';
+    if (r.gesamt) {
+      const p = Math.min(100, 100*r.fertig/r.gesamt);
+      h += '<div class="balken"><i style="width:'+p.toFixed(1)+'%"></i></div>';
+      h += '<div class="zeile"><span>Fortschritt</span><b>'+zahl(r.fertig)+' / '+zahl(r.gesamt)+' ('+p.toFixed(1)+' %)</b></div>';
+    }
+    if (r.rate)   h += '<div class="zeile"><span>Tempo</span><b>'+r.rate+' /min</b></div>';
+    if (r.eta)    h += '<div class="zeile"><span>Restzeit</span><b>'+r.eta+'</b></div>';
+    if (r.fehler !== undefined) h += '<div class="zeile"><span>Fehler</span><b class="'+(r.fehler>0?'gelb':'')+'">'+zahl(r.fehler)+'</b></div>';
+    h += '<div class="zeile"><span>Fenster</span><b>'+(r.fenster_offen?'offen':'zu')+(r.freigabe?' (Freigabe)':'')+'</b></div>';
+    h += '<div class="zeile"><span>Letzte Meldung</span><b>'+alterText(r.at)+'</b></div>';
+    if (r.letzte_zeile) h += '<div class="zeile" style="display:block"><span>Protokoll</span><br><code>'+r.letzte_zeile.replace(/[<>&]/g,'')+'</code></div>';
+  }
+  h += '</div>';
+
+  // Bestand
+  h += '<div class="karte"><h2>Bestand in R2</h2>';
+  const namen = { dom_33:'Brandenburg · Oberfläche', dgm_33:'Brandenburg · Gelände',
+                  dom_32:'NRW · Oberfläche',        dgm_32:'NRW · Gelände',
+                  sonstige:'ohne Zone (alt)' };
+  const g = c.groups || {};
+  h += '<div class="gross">'+zahl(c.objects)+'</div><div class="sub">Kacheln &middot; '
+     + ((c.bytes||0)/1e9).toFixed(1).replace('.',',')+' GB</div>';
+  Object.keys(namen).forEach(k => {
+    if (g[k] !== undefined) h += '<div class="zeile"><span>'+namen[k]+'</span><b>'+zahl(g[k])+'</b></div>';
+  });
+  h += '<div class="zeile"><span>Stand der Zählung</span><b>'+alterText(new Date(c.at).toISOString())+'</b></div>';
+  h += '</div>';
+
+  $('inhalt').innerHTML = h;
+  $('uhr').textContent = new Date().toLocaleTimeString('de-DE');
+}
+
+async function laden(){
+  try {
+    const r = await fetch('/v1/status');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    zeichne(await r.json());
+    $('stand').textContent = '';
+  } catch(e) {
+    $('stand').textContent = 'Abruf fehlgeschlagen: ' + e.message;
+  }
+}
+laden();
+setInterval(laden, 30000);
+</script>
+</body>
+</html>`;
+
 const DOCS_HTML = `<!doctype html>
 <html lang="de">
 <head>
