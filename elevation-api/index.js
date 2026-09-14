@@ -684,10 +684,17 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
     for (const k of candidates) {
       let buffer = null;
 
-      // 1) Bevorzugt: R2-Binding
+      // 1) Bevorzugt: R2-Binding. Erst die unkomprimierte Kachel, dann die
+      //    gepackte — im Bucket liegt (Stand 09/2026) nur noch `.bin.gz`,
+      //    die rohe `.bin` wird aber weiter unterstützt.
       if (env && env.TILES) {
         const obj = await env.TILES.get(k);
-        if (obj) buffer = await obj.arrayBuffer();
+        if (obj) {
+          buffer = await obj.arrayBuffer();
+        } else {
+          const gz = await env.TILES.get(`${k}.gz`);
+          if (gz) buffer = await gunzip(gz.body);
+        }
       }
       // 2) Fallback: öffentliche R2-URL — nur noch, wenn ausdrücklich erlaubt.
       //    Solange dieser Weg offensteht, nützt das Abschalten der öffentlichen
@@ -708,6 +715,17 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
 
   cache.set(key, promise);
   return promise;
+}
+
+/**
+ * Entpackt einen gzip-Strom aus R2 zu einem ArrayBuffer.
+ *
+ * Läuft über die eingebaute DecompressionStream der Workers-Laufzeit, kostet
+ * also keine eigene Bibliothek. Eine Kachel schrumpft dabei von rund 1,2 MB
+ * gepackt auf exakt 2.000.000 Byte.
+ */
+async function gunzip(stream) {
+  return await new Response(stream.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
 }
 
 /**
