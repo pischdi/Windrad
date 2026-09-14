@@ -84,7 +84,11 @@ export default {
       }
 
       // Auth + Rate-Limit für alle Datenendpunkte.
-      const gate = await authAndRateLimit(request, env);
+      // Rohe Kacheln gibt es nur mit Schlüssel: Ein Rechenergebnis (Höhe, Profil,
+      // Sichtlinie) darf jeder anonym ausprobieren, der Datenbestand selbst nicht.
+      const gate = await authAndRateLimit(request, env, {
+        requireKey: url.pathname === '/v1/tile',
+      });
       if (gate) return gate; // 401 / 429
 
       if (url.pathname === '/v1/point') {
@@ -129,8 +133,15 @@ export default {
  * Gibt eine Fehler-Response zurück, wenn blockiert werden soll, sonst null.
  * Fehlt ein Binding (z.B. lokal), wird das Gate übersprungen (fail-open).
  */
-async function authAndRateLimit(request, env) {
+async function authAndRateLimit(request, env, opts = {}) {
   const apiKey = request.headers.get('X-API-Key');
+
+  if (!apiKey && opts.requireKey) {
+    return json(
+      { error: 'This endpoint requires an API key (header X-API-Key)', code: 'KEY_REQUIRED' },
+      401
+    );
+  }
 
   if (apiKey) {
     if (env.API_KEYS) {

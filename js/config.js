@@ -33,7 +33,7 @@ const CONFIG = {
         // gilt er nur von unserer eigenen Seite aus:
         //   wrangler kv key put --namespace-id=<API_KEYS> "<key>" \
         //     '{"name":"AR-Frontend","tier":"frontend","origins":["https://windrad.pages.dev"]}' --remote
-        apiKey: null,          // hier den Frontend-Schlüssel eintragen
+        apiKey: 'ek_fe_7b2062c16c9489fe0c4a272cb81e698a',  // Frontend-Schluessel, nur von windrad.pages.dev gueltig
         utmZone: 33            // Brandenburg; NRW und der Westen liegen in Zone 32
     },
     
