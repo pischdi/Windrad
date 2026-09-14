@@ -58,11 +58,32 @@ def list_all_tiles(preset):
     return files
 
 
+def list_done_api(preset):
+    """Vorhandene Kacheln über die Elevation-API ermitteln (ohne S3-Zugang)."""
+    p = PRESETS[preset]
+    base_url = os.environ['UPLOAD_URL'].rstrip('/')
+    done, cursor = set(), None
+    while True:
+        url = f"{base_url}/v1/tiles?zone={p['zone']}&model={p['kind']}"
+        if cursor:
+            url += '&cursor=' + requests.utils.quote(cursor)
+        r = requests.get(url, timeout=180,
+                         headers={'X-API-Key': os.environ['UPLOAD_KEY']})
+        r.raise_for_status()
+        d = r.json()
+        for t in d['tiles']:
+            a, b = t.split('_')
+            done.add((int(a), int(b)))
+        if not d.get('truncated'):
+            return done
+        cursor = d['cursor']
+
+
 def list_done(s3, bucket, preset):
     """Bereits auf R2 vorhandene Kacheln dieses Modells/Zone (Resume)."""
     p = PRESETS[preset]
     pref = f"{key_prefix(p['kind'])}_{p['zone']}_"
-    rgx = re.compile(rf"{re.escape(pref)}(\d+)_(\d+)\.bin$")
+    rgx = re.compile(rf"{re.escape(pref)}(\d+)_(\d+)\.bin(\.gz)?$")
     done, token = set(), None
     while True:
         kw = {'Bucket': bucket, 'Prefix': pref}
@@ -111,8 +132,41 @@ def _download(url, retries=3):
     raise last
 
 
+def upload_via_api(preset, tx, ty, gz_bytes):
+    """Kachel über die Elevation-API in R2 legen (ohne S3-Zugangsdaten).
+
+    Gedacht für den lokalen Dauerläufer: Statt eigener R2-Schlüssel genügt der
+    API-Schlüssel, den die internen Werkzeuge ohnehin benutzen. Der Worker prüft
+    den Schlüssel, die Gzip-Kennung und die Größe, bevor er schreibt.
+    """
+    p = PRESETS[preset]
+    base_url = os.environ['UPLOAD_URL'].rstrip('/')
+    url = (f"{base_url}/v1/tile?zone={p['zone']}&x={tx}&y={ty}"
+           f"&model={p['kind']}")
+    last = None
+    for i in range(4):
+        try:
+            r = requests.put(url, data=gz_bytes, timeout=180,
+                             headers={'X-API-Key': os.environ['UPLOAD_KEY'],
+                                      'Content-Type': 'application/gzip'})
+            if r.status_code == 200:
+                return
+            last = RuntimeError(f'HTTP {r.status_code}: {r.text[:200]}')
+            if r.status_code in (400, 401, 403):
+                break                      # Fehler in Daten oder Schlüssel: kein Retry
+        except Exception as e:
+            last = e
+        time.sleep(1.5 * (i + 1))
+    raise last
+
+
 def process_tile(s3, bucket, preset, tx, ty, fname, upload_gz=True):
-    """Eine Kachel: laden -> Grid -> R2 (.bin + optional .bin.gz)."""
+    """Eine Kachel: laden -> Grid -> R2.
+
+    Zwei Wege: Liegt `UPLOAD_URL` in der Umgebung, geht die Kachel über die
+    Elevation-API (nur gepackt, so wie der Bestand seit 14.09.2026 aussieht).
+    Sonst der klassische S3-Weg für den Cloud-Run-Betrieb.
+    """
     p = PRESETS[preset]
     content = _download(f"{p['base']}/{fname}")
     if fname.lower().endswith('.zip'):
@@ -123,6 +177,11 @@ def process_tile(s3, bucket, preset, tx, ty, fname, upload_gz=True):
         tif = content                     # NRW & Co.: GeoTIFF direkt
     raw = make_grid(tif, tx, ty).tobytes()
     assert len(raw) == GRID * GRID * 2, f'falsche Größe {len(raw)}'
+
+    if os.environ.get('UPLOAD_URL'):
+        upload_via_api(preset, tx, ty, gzip.compress(raw))
+        return
+
     base = f"{key_prefix(p['kind'])}_{p['zone']}_{tx}_{ty}"
     s3.put_object(Bucket=bucket, Key=base + '.bin', Body=raw,
                   ContentType='application/octet-stream')

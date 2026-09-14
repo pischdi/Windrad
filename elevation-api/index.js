@@ -92,7 +92,7 @@ export default {
       // Rohe Kacheln gibt es nur mit Schlüssel: Ein Rechenergebnis (Höhe, Profil,
       // Sichtlinie) darf jeder anonym ausprobieren, der Datenbestand selbst nicht.
       const gate = await authAndRateLimit(request, env, {
-        requireKey: url.pathname === '/v1/tile',
+        requireKey: url.pathname === '/v1/tile' || url.pathname === '/v1/tiles',
       });
       if (gate) return gate; // 401 / 429
 
@@ -118,7 +118,12 @@ export default {
         return await handleViewshed(url, env);
       }
       if (url.pathname === '/v1/tile') {
-        return await handleTile(url, env);
+        return request.method === 'PUT'
+          ? await handleTilePut(request, url, env)
+          : await handleTile(url, env);
+      }
+      if (url.pathname === '/v1/tiles') {
+        return await handleTileList(url, env);
       }
 
       return json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
@@ -621,6 +626,23 @@ async function handleSlope(url, env) {
   }
 
   const counted = ok + over;
+
+  // Ehrliche Antwort statt leerer Karte: Liegt für das Gebiet gar kein Modell
+  // vor, ist das keine Fläche ohne Gefälle, sondern eine Fläche ohne Daten.
+  // Häufigster Fall (Stand 09/2026): DGM in Brandenburg — dort liegt bisher
+  // nur das DOM. Der Hinweis nennt deshalb gleich die Ausweichmöglichkeit.
+  if (counted === 0) {
+    const other = model === 'dgm' ? 'dom' : 'dgm';
+    throw apiError(
+      `Kein ${model.toUpperCase()} für dieses Gebiet verarbeitet (Zone ${zone}, `
+      + `${nodata} Zellen ohne Daten). Verfügbar sein könnte "model=${other}" — `
+      + `für Gefälle und Aufstellflächen ist das DGM (Gelände ohne Bewuchs) aber `
+      + `die fachlich richtige Grundlage.`,
+      404,
+      'MODEL_NOT_AVAILABLE'
+    );
+  }
+
   return json({
     model,
     window_m: windowM,
@@ -765,6 +787,83 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
 
   cache.set(key, promise);
   return promise;
+}
+
+/**
+ * GET /v1/tiles?model=dgm&zone=33[&cursor=…]
+ *
+ * Listet die bereits vorhandenen Kacheln eines Modells als "x_y" auf. Der
+ * lokale Runner braucht das zum Wiederaufsetzen: Was schon im Bestand liegt,
+ * wird nicht erneut heruntergeladen und gerechnet.
+ *
+ * Antwortet seitenweise; `cursor` aus der Antwort beim nächsten Aufruf mitgeben.
+ */
+async function handleTileList(url, env) {
+  if (!env.TILES) throw apiError('R2-Binding fehlt', 503, 'NO_BUCKET');
+  const zone = Number(url.searchParams.get('zone') ?? 33);
+  const model = url.searchParams.get('model') === 'dgm' ? 'dgm' : 'dom';
+  if (![32, 33].includes(zone)) {
+    return json({ error: 'zone muss 32 oder 33 sein', code: 'BAD_REQUEST' }, 400);
+  }
+  const prefix = `${model === 'dgm' ? 'dgm' : 'tile'}_${zone}_`;
+  const rgx = new RegExp(`^${prefix}(\\d+)_(\\d+)\\.bin(\\.gz)?$`);
+
+  let cursor = url.searchParams.get('cursor') || undefined;
+  const tiles = [];
+  // Mehrere Seiten je Aufruf, damit der Runner nicht hunderte Male fragen muss.
+  for (let i = 0; i < 40; i++) {
+    const res = await env.TILES.list({ limit: 1000, cursor, prefix });
+    for (const o of res.objects) {
+      const m = rgx.exec(o.key);
+      if (m) tiles.push(`${m[1]}_${m[2]}`);
+    }
+    cursor = res.truncated ? res.cursor : undefined;
+    if (!res.truncated) break;
+  }
+  return json({ model, zone, tiles, truncated: !!cursor, cursor: cursor || null });
+}
+
+/**
+ * PUT /v1/tile?zone=33&x=459&y=5722&model=dgm
+ *
+ * Nimmt eine fertig gerechnete Kachel entgegen und legt sie in R2 ab. Damit
+ * braucht der lokale Runner keine S3-Zugangsdaten mehr: Er schickt die Kachel
+ * mit demselben API-Schlüssel, den auch die internen Werkzeuge benutzen.
+ *
+ * Erwartet den gzip-gepackten Inhalt (Content-Encoding spielt keine Rolle, es
+ * zählt der Bytestrom) und legt ihn als `<modell>_<zone>_<x>_<y>.bin.gz` ab.
+ * Unkomprimierte Kacheln werden bewusst nicht mehr angenommen — im Bucket
+ * liegt seit 14.09.2026 nur noch die gepackte Fassung.
+ */
+async function handleTilePut(request, url, env) {
+  if (!env.TILES) throw apiError('R2-Binding fehlt', 503, 'NO_BUCKET');
+
+  const zone = Number(url.searchParams.get('zone') ?? 33);
+  const x = Number(url.searchParams.get('x'));
+  const y = Number(url.searchParams.get('y'));
+  const model = url.searchParams.get('model') === 'dgm' ? 'dgm' : 'dom';
+  if (![32, 33].includes(zone) || !Number.isFinite(x) || !Number.isFinite(y)) {
+    return json({ error: 'zone (32|33), x und y erforderlich', code: 'BAD_REQUEST' }, 400);
+  }
+
+  const body = await request.arrayBuffer();
+  if (body.byteLength < 1000 || body.byteLength > 4_000_000) {
+    return json(
+      { error: `Unplausible Groesse: ${body.byteLength} Byte`, code: 'BAD_TILE' },
+      400
+    );
+  }
+  // Gzip-Kennung prüfen, damit keine rohe oder halbe Datei im Bestand landet.
+  const head = new Uint8Array(body.slice(0, 2));
+  if (head[0] !== 0x1f || head[1] !== 0x8b) {
+    return json({ error: 'Erwartet wird gzip (Magic 1f8b)', code: 'NOT_GZIP' }, 400);
+  }
+
+  const key = `${model === 'dgm' ? 'dgm' : 'tile'}_${zone}_${x}_${y}.bin.gz`;
+  await env.TILES.put(key, body, {
+    httpMetadata: { contentType: 'application/gzip' },
+  });
+  return json({ stored: key, bytes: body.byteLength });
 }
 
 /**

@@ -72,7 +72,8 @@ def run_model(s3, preset):
         print(f"[{preset}] auf Gebiet begrenzt: {len(tiles)} Kacheln im Rechteck", flush=True)
 
     print(f"[{preset}] bereits vorhandene Kacheln in R2 ermitteln (Resume) …", flush=True)
-    done = tp.list_done(s3, BUCKET, preset)
+    done = (tp.list_done_api(preset) if os.environ.get('UPLOAD_URL')
+            else tp.list_done(s3, BUCKET, preset))
     todo = [t for t in tiles if t not in done]
     total = len(tiles)
     print(f"[{preset}] {total} gesamt · {len(done & set(tiles))} schon da · "
@@ -140,8 +141,12 @@ def run_model(s3, preset):
 
 
 def main():
-    missing = [k for k in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
-               if not os.environ.get(k)]
+    # Zwei Betriebsarten: über die Elevation-API (kein S3-Zugang noetig) oder
+    # klassisch mit R2-Schluesseln. Geprueft wird nur, was der gewaehlte Weg braucht.
+    via_api = bool(os.environ.get("UPLOAD_URL"))
+    needed = ("UPLOAD_URL", "UPLOAD_KEY") if via_api else (
+        "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+    missing = [k for k in needed if not os.environ.get(k)]
     if missing:
         print("FEHLT: " + ", ".join(missing) + " — siehe .env.example / LOCAL_RUNNER.md",
               file=sys.stderr)
@@ -154,8 +159,9 @@ def main():
     signal.signal(signal.SIGINT, _sig)
     signal.signal(signal.SIGTERM, _sig)
 
-    s3 = tp.r2_client()
-    print(f"Runner gestartet · Bucket={BUCKET} · Modelle={MODELS} · Worker={WORKERS} · "
+    s3 = None if via_api else tp.r2_client()
+    print(f"Runner gestartet · Weg={'API' if via_api else 'S3'} · Bucket={BUCKET} · "
+          f"Modelle={MODELS} · Worker={WORKERS} · "
           f"gz={'an' if UPLOAD_GZ else 'aus'}", flush=True)
     for preset in MODELS:
         if _stop.is_set():
