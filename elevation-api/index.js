@@ -66,20 +66,25 @@ export default {
           headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
         });
       }
-      if (url.pathname === '/gefaelle') {
-        return new Response(GEFAELLE_HTML, {
-          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
-        });
-      }
-      if (url.pathname === '/losspinne') {
-        return new Response(LOSSPINNE_HTML, {
-          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
-        });
-      }
-      if (url.pathname === '/losspinne/sites.json') {
-        return new Response(JSON.stringify(LOSSPINNE_SITES), {
-          headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8',
-                     'Cache-Control': 'no-cache' },
+      // Interne Werkzeuge und der Standortkatalog: nur mit Schlüssel.
+      // Ein Browser kann bei einem Seitenaufruf keinen Header setzen, deshalb
+      // wird der Schlüssel hier auch als `?k=…` akzeptiert und anschließend in
+      // die Seite eingesetzt, damit deren eigene Abrufe ihn mitschicken.
+      const INTERNAL = ['/gefaelle', '/losspinne', '/losspinne/sites.json'];
+      if (INTERNAL.includes(url.pathname)) {
+        const gate = await authAndRateLimit(request, env, { requireKey: true });
+        if (gate) return gate;
+
+        if (url.pathname === '/losspinne/sites.json') {
+          return new Response(JSON.stringify(LOSSPINNE_SITES), {
+            headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8',
+                       'Cache-Control': 'no-cache' },
+          });
+        }
+        const page = url.pathname === '/gefaelle' ? GEFAELLE_HTML : LOSSPINNE_HTML;
+        return new Response(withKey(page, resolveKey(request, url)), {
+          headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8',
+                     'Cache-Control': 'no-store' },
         });
       }
 
@@ -133,8 +138,53 @@ export default {
  * Gibt eine Fehler-Response zurück, wenn blockiert werden soll, sonst null.
  * Fehlt ein Binding (z.B. lokal), wird das Gate übersprungen (fail-open).
  */
+/**
+ * Schlüssel aus Header oder Query lesen.
+ *
+ * `X-API-Key` ist der reguläre Weg für Programme. `?k=…` gibt es nur, weil ein
+ * Browser beim Öffnen einer Seite keinen eigenen Header schicken kann — der
+ * Schlüssel steht dann in der Adresszeile und damit im Verlauf. Für interne
+ * Werkzeuge vertretbar, für Kundenzugänge nicht.
+ */
+function resolveKey(request, url) {
+  return request.headers.get('X-API-Key') || url.searchParams.get('k') || null;
+}
+
+/**
+ * Setzt den Schlüssel in das Eingabefeld der ausgelieferten Seite, damit deren
+ * eigene Abrufe (`/v1/…`, `sites.json`) ihn im Header mitschicken.
+ */
+function withKey(html, key) {
+  if (!key) return html;
+  const safe = String(key).replace(/[^A-Za-z0-9_\-]/g, '');
+  // Muss VOR den Skripten der Seite laufen: manche Abrufe starten sofort beim
+  // Parsen, also bevor das Eingabefeld existiert. Deshalb wird zusätzlich
+  // `fetch` umschlossen, damit jeder Abruf den Schlüssel trägt.
+  const inject = `<script>
+(function(){
+  var K=${JSON.stringify(safe)};
+  var orig=window.fetch;
+  window.fetch=function(input,init){
+    init=init||{};
+    var h=new Headers(init.headers||{});
+    if(!h.has('X-API-Key')) h.set('X-API-Key',K);
+    init.headers=h;
+    return orig.call(window,input,init);
+  };
+  document.addEventListener('DOMContentLoaded',function(){
+    var el=document.getElementById('apiKey');
+    if(el) el.value=K;
+  });
+})();
+</script>`;
+  return html.includes('<head>')
+    ? html.replace('<head>', '<head>' + inject)
+    : inject + html;
+}
+
 async function authAndRateLimit(request, env, opts = {}) {
-  const apiKey = request.headers.get('X-API-Key');
+  const url = new URL(request.url);
+  const apiKey = resolveKey(request, url);
 
   if (!apiKey && opts.requireKey) {
     return json(
