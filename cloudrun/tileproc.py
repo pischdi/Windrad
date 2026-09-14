@@ -99,6 +99,14 @@ def _list_sn(p):
     GeoCloud-Share-ID, die Dateinamen-Vorlage und die Liste nicht existierender
     Kacheln) und `batchConfig.mapping` (je Gemarkung das 1-km-Raster). Die Share-ID
     wandert in den Dateinamen, damit `base + '/' + fname` unverändert trägt.
+
+    Ein Verzeichnislisting gibt es nicht — PROPFIND und HEAD auf die GeoCloud
+    antworten 401, nur das direkte GET trägt. Die Produktseite
+    (downloadbereich-digitale-hoehenmodelle-4851.html) enthält keine Dateiliste
+    und verweist ihrerseits hierher; sie gibt aber das amtliche Kachelraster als
+    Shapefile heraus (download/Shape_km2_33_UTM.zip). Damit gegengeprüft: die
+    4.989 Kacheln des Shapefiles minus die 8 oben gelisteten sind genau die 4.981,
+    die dieser Weg liefert — keine zu viel, keine zu wenig.
     """
     html = requests.get(SN_BATCH_URL, timeout=180).text
     prod = _js_object(html, 'products')[p['product']]
