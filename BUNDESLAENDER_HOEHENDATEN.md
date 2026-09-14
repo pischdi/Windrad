@@ -18,17 +18,22 @@ Cloud-Run-Pipeline (`cloudrun/tileproc.py`) tatsächlich eingebaut & lauffähig.
 | Mecklenburg-Vorp. | 33 | ✅ DOM1 | ✅ | – | Preset + ATOM/WCS-Adapter |
 | Sachsen-Anhalt | 32 | ✅ DOM1/bDOM | ✅ | – | Preset + Portal-Adapter |
 | Thüringen | 32 | ✅ DOM1 | ✅ | – | Preset + DLA-Client-Adapter |
-| Niedersachsen | 32 | ✅ bDOM 0,2 m | ✅ | – | Preset + ArcGIS-Hub/ATOM-Adapter |
+| Niedersachsen | 32 | ✅ DOM1 1 m + bDOM20 0,2 m | ✅ DGM1 | – | **Zugang gelöst 15.09.** · GeoJSON-Index auf ArcGIS → flacher S3-Bucket, Range ✅ · 70.807 Kacheln · günstigster Zugang aller Länder → `ZUGAENGE_PROBLEMLAENDER.md` |
 | Bayern | 32 | ✅ DOM20 0,2 m | ✅ | – | Preset + Metalink-Adapter |
 | Baden-Württemberg | 32 | ✅ DOM1 | ✅ | – | Preset + Portal/OGC-API-Adapter |
 | Rheinland-Pfalz | 32 | ✅ bDOM 0,2 m | ✅ | – | Preset + ATOM-Adapter |
-| Schleswig-Holstein | 32 | ✅ bDOM 0,2 m | ✅ | – | Preset + Download-Client-Adapter |
-| Hessen | 32 | 🟡 offen | ✅ | – | Zugang umständlich (Intershop) |
-| Bremen | 32 | 🟡 offen | ✅ | – | Bulk-Mechanik klären |
-| Saarland | 32 | 🟡 Format? | ✅ | – | Format prüfen (Anfrage liegt bereit) |
-| **Hamburg** | 32 | ⚪ **kein DOM** | ✅ nur DGM | – | DOM anfragen (LGV) / BKG-DGM als Notnagel |
+| Schleswig-Holstein | 32 | ✅ bDOM 0,2 m | ✅ | – | **Zugang gelöst 15.09.** · GeoJSON mit 17.614 Direktlinks · ⚠️ 100 MB/km², **kein Range** → teuerster Zugang |
+| Hessen | 32 | ✅ DOM1 1 m | ✅ DGM1 | – | **Zugang gelöst 15.09.** · undokumentierte JSON-REST-API im Downloadcenter, kein Warenkorb · ⚠️ Link enthält Tagesdatum, nicht cachebar |
+| Bremen | 32 | ✅ DOM1 1 m (XYZ) | ✅ | – | **Zugang gelöst 15.09.** · 2 statische ZIPs, 509 Kacheln gesamt · ⚠️ Stand 2017/2015 |
+| Saarland | 32 | ✅ DOM1 1 m (2025) | ✅ DGM1 | – | **Zugang gelöst 15.09.** · Nextcloud-WebDAV, 6 Kreis-ZIPs, GeoTIFF · Formatfrage beantwortet |
+| **Hamburg** | 32 | ✅ **bDOM 1 m** | ✅ | – | **Korrektur 15.09.: DOM existiert** · CKAN → 1,34-GB-ZIP, 883 GeoTIFFs, Range ✅ |
 
-**Bilanz:** Preset einsatzbereit **2/16** (BB, NRW) · Quelle offen, Preset fehlt **10** · offen mit Haken **3** · ohne offenes DOM **1** (Hamburg).
+**Bilanz (Stand 15.09.):** Preset einsatzbereit **3/16** (BB, NRW, SN-Adapter) · **Quelle offen
+in allen 16 Ländern** · kein Land mehr ohne offenes DOM · offene Arbeit ist reiner Adapter-Bau.
+
+> **Die vier Problemfälle sind erledigt.** Hessen, Bremen, Saarland und Hamburg haben alle einen
+> maschinellen Zugang; Hamburgs „kein DOM" war eine Fehlannahme. Details, verifizierte URLs,
+> Kachelgrößen und Fallstricke: **`ZUGAENGE_PROBLEMLAENDER.md`** (2026-09-15, live geprüft).
 
 ## Zwei Einordnungen
 
@@ -50,10 +55,13 @@ On-Demand statt „alles auf Vorrat": pro neuer MRT-Region das passende Land als
 ergänzen (`cloudrun/tileproc.py`), dann zieht `/ensure`/Batch dort sofort. Reihenfolge nach
 tatsächlichem Standort-Bedarf, nicht alphabetisch.
 
-## Problemfälle & Kontakte
-- **Hamburg (⚪):** LGV Hamburg, ☎ +49 40 42826-5720, `geobasisdaten@gv.hamburg.de`.
-- **Saarland (🟡, nur Format):** LVGL Saarland, ☎ +49 681 9712-03, `poststelle@lvgl.saarland.de`.
-- Fertige Anfrage-Emails: Google Drive → LOS-Test → „Anfrage Hoehendaten – Problemfaelle & Kontakte (final)".
+## Problemfälle & Kontakte — ~~offen~~ erledigt (2026-09-15)
+- ~~**Hamburg:** LGV, `geobasisdaten@gv.hamburg.de`~~ → **hinfällig**, bDOM ist offen verfügbar.
+- ~~**Saarland (nur Format):** LVGL, `poststelle@lvgl.saarland.de`~~ → **hinfällig**, Format
+  geklärt: GeoTIFF 1 m, Kachel 1 km, Aufnahme 2025.
+- Die vorbereiteten Anfrage-E-Mails (Google Drive → LOS-Test) müssen **nicht** verschickt werden.
+- Kontakte bleiben notiert, falls es später um Lizenzfragen oder ältere Jahrgänge geht:
+  LGV Hamburg ☎ +49 40 42826-5720 · LVGL Saarland ☎ +49 681 9712-03.
 
 ## Bundesweite Quellen (Sackgasse für 1 m)
 - **BKG DGM1 (1 m):** ❌ **kostenpflichtig, ab 8.000 €** (GDZ-Shop, 09/2026). Gratis nur **DGM200/DGM1000** (zu grob); **DGM25/DGM5** nur für Behörden.
@@ -136,13 +144,13 @@ Bebauung streuen, ±50 % sind normal).
 
 | Land | Mechanismus | Was ein Adapter bräuchte |
 |------|-------------|--------------------------|
-| **Niedersachsen** | Angular-SPA über S3/COS-Bucket. Statische Indizes existieren nur für DOP/LoD1/LoD2 (`pro-download-indices/*.geojson`), **nicht** für DGM1/DOM1/bDOM20. Der im SPA hinterlegte Shop-Einstieg (`geobasisdaten.niedersachsen.de/shop?do=opendata`) liefert **404**. | Kachel-Auswahl im Portal nachbauen oder LGLN nach dem Höhendaten-Index fragen |
-| **Schleswig-Holstein** | gaialight-Download-Client. `single.php?file=bDOM_SH_Massendownload` liefert **1 Byte** ohne Session; echte Dateilisten kommen aus `_ajax/kachelsuche.php` / `multi.php` mit Sitzungskontext. | AJAX-Kachelsuche nachbauen (POST mit Kachel-/Polygonparametern) |
+| ~~**Niedersachsen**~~ **gelöst** | Im LGLN-Bucket liegen unter `pro-download-indices/` tatsächlich nur DOP/LoD1/LoD2 — **die Höhen-Indizes liegen auf ArcGIS Online** (Owner `opengeodata_lgln_opendata`): DOM1, DGM1, bDOM20 als GeoJSON mit Direktlinks in flache S3-Buckets, Range ✅. | nichts mehr — simpler HTTP-Adapter |
+| ~~**Schleswig-Holstein**~~ **gelöst** | Die 1-Byte-Antwort war ein **Parameterfehler**: korrekt ist `single.php?file=bDOM_SH_Massendownload.geojson&id=4` → 8,9 MB GeoJSON mit 17.614 fertigen Direktlinks, ohne Session. Keine AJAX-Kachelsuche nötig. | nichts mehr · ⚠️ aber 100 MB/km² und **kein Range** |
 | **Thüringen (nur LAZ)** | DGM/DOM liegen als statische ZIPs unter `/hoehendaten/…` und sind über ATOM auflistbar — **für LAZ existiert kein ATOM-Feed** (`atom_th_hoehendaten_laz` → „internal error1"), Verzeichnislisting ist 403. | dieselbe Kachelsuche wie SH (identischer Client) |
 | **Sachsen-Anhalt** | Keine Direktlinks auf den LVermGeo-Seiten; Abgabe läuft über das Geodatenportal (`geodatenportal.sachsen-anhalt.de/gfds`) mit Auswahl-/Bestellstrecke. | Portal-Session + Bestellvorgang, oder Anfrage beim LVermGeo |
-| **Hessen** | Intershop-Downloadcenter (`gds.hessen.de/INTERSHOP/…`) — Warenkorb-Logik mit Sitzung. | Intershop-Session nachbauen; unverhältnismäßig, besser Direktanfrage HLBG |
-| **Bremen** | `geo.bremen.de` ist eine reine Produktbeschreibung ohne Downloadlinks; `gdi2.geo.bremen.de` antwortet **403**, `geoportal.bremen.de` löst nicht auf. | Bulk-Mechanik beim Landesamt erfragen (stand schon als To-do) |
-| **Saarland** | Nur Viewer-Links (`geoportal.saarland.de/map?LAYER[...]`); der INSPIRE-Feed verlangt `type=DATASET|SERVICE` und liefert für Höhendaten keinen Kacheleinstieg. | Feed mit korrektem Dataset-Parameter durchsuchen; Anfrage LVGL liegt ohnehin bereit |
+| ~~**Hessen**~~ **gelöst** | Der Warenkorb ist gar nicht im Weg: die Vue-App zieht ihre Daten aus `/INTERSHOP/rest/WFS/HLBG-Geodaten-Site/-/downloadcenter?path=…&navigation=all` — **offene JSON-API, ohne Session**, mit fertigen ZIP-Links je Gemeinde. | nichts mehr · ⚠️ Link enthält Tagesdatum → je Lauf neu holen |
+| ~~**Bremen**~~ **gelöst** | `gdi2.geo.bremen.de` gibt auf den `/inspire/download/DOM/data/`-Pfaden **HTTP 200** (der 403 galt anderen Pfaden). Zwei statische ZIPs, Range ✅, zusammen 509 Kacheln. | nichts mehr · ⚠️ Datenstand 2017/2015 |
+| ~~**Saarland**~~ **gelöst** | Der Zugang steht nicht im Geoportal, sondern in GovData: **öffentliche Nextcloud** `shop.lvgl.saarland.de` (Token `NK8ndP55qAqGEZD`), per WebDAV-PROPFIND listbar, Range ✅. Enthält das komplette Open-Data-Angebot des Landes. | nichts mehr |
 | **Berlin (nur LAZ)** | ALS existiert offen, aber ausschließlich als Sektorpakete (`Nord/Mitte/Süd.zip`), `Mitte.zip` allein **36,7 GB**. | Einmal-Bulk-Import statt On-Demand — lohnt nur bei Vollausbau Berlin |
 | **Mecklenburg-Vorp. (nur LAZ)** | `als_download` antwortet **HTTP 401, `WWW-Authenticate: Basic realm="als_download"`** — Punktwolken sind nicht offen. | Zugangsdaten beim LAiV beantragen; für DOM/DGM nicht nötig |
 | **Baden-Württemberg (nur LAZ)** | Im OpenGeoData-Portal sind 20 Produkte hinterlegt, **keine Punktwolke**; `/data/las/`, `/data/laz/`, `/data/lidar/` sind 404. | Punktwolken beim LGL kostenpflichtig anfragen — für unseren Zweck irrelevant |
