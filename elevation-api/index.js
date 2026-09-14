@@ -1355,251 +1355,274 @@ const ADMIN_HTML = `<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Admin — Bestand und Runner</title>
+<title>Admin — Höhendaten</title>
 <style>
   :root { color-scheme: dark; }
-  body { margin:0; padding:16px; background:#14161a; color:#e8eaed;
+  * { box-sizing: border-box; }
+  body { margin:0; padding:14px 14px 40px; background:#14161a; color:#e8eaed;
          font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  h1 { font-size:19px; margin:0 0 4px; }
-  .sub { color:#9aa0a6; font-size:13px; margin-bottom:16px; }
-  .karte { background:#1d2025; border:1px solid #2c3036; border-radius:10px;
-           padding:14px; margin-bottom:12px; }
-  .karte h2 { font-size:14px; margin:0 0 10px; color:#9aa0a6; font-weight:600;
+  h1 { font-size:18px; margin:0 0 2px; }
+  .sub { color:#9aa0a6; font-size:12px; }
+  nav { display:flex; gap:6px; margin:14px 0; position:sticky; top:0; background:#14161a; padding:6px 0; z-index:5; }
+  nav button { flex:1; padding:9px 4px; border-radius:8px; border:1px solid #2c3036;
+               background:#1d2025; color:#9aa0a6; font:inherit; font-size:13px; cursor:pointer; }
+  nav button.aktiv { background:#2a4a7c; border-color:#35538a; color:#fff; }
+  .karte { background:#1d2025; border:1px solid #2c3036; border-radius:10px; padding:14px; margin-bottom:12px; }
+  .karte h2 { font-size:13px; margin:0 0 10px; color:#9aa0a6; font-weight:600;
               text-transform:uppercase; letter-spacing:.04em; }
-  .zeile { display:flex; justify-content:space-between; gap:12px; padding:5px 0;
-           border-bottom:1px solid #24272c; }
+  .zeile { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid #24272c; }
   .zeile:last-child { border-bottom:0; }
-  .zeile b { font-variant-numeric:tabular-nums; font-weight:600; }
+  .zeile b { font-variant-numeric:tabular-nums; font-weight:600; text-align:right; }
+  .trenner { border-top:1px solid #2c3036; margin-top:6px; padding-top:10px; }
   .balken { height:8px; background:#2c3036; border-radius:4px; overflow:hidden; margin:10px 0 6px; }
   .balken i { display:block; height:100%; background:#4a9eff; }
   .gross { font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
-  .gruen { color:#5bcc7d; } .gelb { color:#e3b341; } .rot { color:#f2716b; } .grau { color:#9aa0a6; }
-  code { background:#24272c; padding:1px 5px; border-radius:4px; font-size:12px; }
-  #stand { color:#9aa0a6; font-size:12px; margin-top:14px; }
-  input, select, button { font:inherit; padding:9px 10px; border-radius:8px;
-      border:1px solid #2c3036; background:#14161a; color:#e8eaed; width:100%; box-sizing:border-box; }
-  button { background:#2a4a7c; border-color:#35538a; cursor:pointer; }
-  button:active { background:#22406c; }
-  .kbox { border:1px solid #2c3036; border-radius:8px; padding:9px; margin-bottom:8px; }
+  .gruen{color:#5bcc7d}.gelb{color:#e3b341}.rot{color:#f2716b}.grau{color:#9aa0a6}
+  .fuss { color:#9aa0a6; font-size:11px; margin-top:8px; line-height:1.4; }
+  code { background:#24272c; padding:1px 5px; border-radius:4px; font-size:11px; }
+  input, select, button.tat { font:inherit; padding:9px 10px; border-radius:8px;
+      border:1px solid #2c3036; background:#14161a; color:#e8eaed; width:100%; }
+  button.tat { background:#2a4a7c; border-color:#35538a; cursor:pointer; }
+  .kbox { border:1px solid #2c3036; border-radius:8px; padding:10px; margin-bottom:8px; }
   .kbox .kopf { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
-  .kbox .meta { color:#9aa0a6; font-size:12px; margin-top:3px; }
-  .kbox button { width:auto; padding:5px 10px; font-size:12px; margin-top:8px; margin-right:6px; }
-  .schl { font-family:ui-monospace,monospace; font-size:12px; word-break:break-all; color:#4a9eff; }
+  .kbox .meta { color:#9aa0a6; font-size:12px; margin-top:4px; }
+  .kbox .tasten { margin-top:8px; display:flex; gap:6px; }
+  .kbox .tasten button { width:auto; padding:5px 10px; font-size:12px; border-radius:6px;
+      border:1px solid #2c3036; background:#24272c; color:#e8eaed; cursor:pointer; }
+  .schl { font-family:ui-monospace,monospace; font-size:12px; word-break:break-all; color:#4a9eff; margin-top:4px; }
+  .feld { display:grid; gap:8px; margin-top:10px; }
 </style>
 </head>
 <body>
-<h1>Bestand und Runner</h1>
-<div class="sub">aktualisiert sich alle 30 Sekunden &middot; <span id="uhr">—</span></div>
-<div id="inhalt">Lade&nbsp;…</div>
-<div class="karte">
-  <h2>Schlüssel</h2>
-  <div id="keys">—</div>
-  <details style="margin-top:12px">
-    <summary style="cursor:pointer;color:#4a9eff">Neuen Schlüssel anlegen</summary>
-    <div style="margin-top:10px;display:grid;gap:8px">
-      <input id="f_name"    placeholder="Name / Ansprechpartner (Pflicht)"/>
-      <input id="f_firma"   placeholder="Firma"/>
+<h1>Höhendaten — Verwaltung</h1>
+<div class="sub">aktualisiert sich alle 30 s · <span id="uhr">—</span></div>
+
+<nav>
+  <button data-tab="lage" class="aktiv">Lage</button>
+  <button data-tab="kosten">Kosten</button>
+  <button data-tab="schluessel">Schlüssel</button>
+</nav>
+
+<div id="tab-lage"><div id="lage">Lade&nbsp;…</div></div>
+<div id="tab-kosten" hidden><div id="kosten">Lade&nbsp;…</div></div>
+<div id="tab-schluessel" hidden>
+  <div class="karte">
+    <h2>Ausgegebene Schlüssel</h2>
+    <div id="keys">Lade&nbsp;…</div>
+  </div>
+  <div class="karte">
+    <h2>Neuen Schlüssel anlegen</h2>
+    <div class="feld">
+      <input id="f_name" placeholder="Name / Ansprechpartner (Pflicht)"/>
+      <input id="f_firma" placeholder="Firma"/>
       <input id="f_kontakt" placeholder="E-Mail"/>
-      <input id="f_notiz"   placeholder="Notiz, z. B. Projekt oder Vereinbarung"/>
+      <input id="f_notiz" placeholder="Notiz, z. B. Projekt oder Vereinbarung"/>
       <input id="f_origins" placeholder="Domainbindung, z. B. https://kunde.de (leer = überall)"/>
       <select id="f_tier">
         <option value="kunde">Kunde</option>
-        <option value="frontend">Frontend (Webseite, an Domain gebunden)</option>
+        <option value="frontend">Frontend (an Domain gebunden)</option>
         <option value="test">Test</option>
         <option value="intern">Intern (darf auch diese Seite)</option>
       </select>
       <input id="f_ablauf" type="date"/>
-      <button id="f_anlegen">Anlegen</button>
+      <button class="tat" id="f_anlegen">Anlegen</button>
       <div id="f_ergebnis"></div>
     </div>
-  </details>
+  </div>
 </div>
-<div id="stand"></div>
+<div id="stand" class="fuss"></div>
 <input id="apiKey" type="hidden"/>
-<script>
-const $ = (id) => document.getElementById(id);
-const zahl = (n) => (n === null || n === undefined) ? '—' : n.toLocaleString('de-DE');
 
-function alterText(iso){
-  if(!iso) return '—';
-  const s = Math.round((Date.now() - new Date(iso).getTime())/1000);
+<script>
+var $ = function(id){ return document.getElementById(id); };
+var PREIS = { gbMonat: 0.015, freiGb: 10, schreibenMio: 4.50, workers: 5.00 };
+var KURS = 0.92;
+var letzteDaten = null;
+
+function zahl(n){ return (n === null || n === undefined) ? '—' : Number(n).toLocaleString('de-DE'); }
+function gbTxt(b){ return (b/1e9).toFixed(1).replace('.', ',') + ' GB'; }
+function eur(d){ return (d*KURS).toFixed(2).replace('.', ',') + ' €'; }
+function sicher(t){ return String(t === null || t === undefined ? '' : t)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function alterTxt(iso){
+  if (!iso) return '—';
+  var s = Math.round((Date.now() - new Date(iso).getTime())/1000);
   if (s < 90) return 'vor ' + s + ' s';
   if (s < 5400) return 'vor ' + Math.round(s/60) + ' min';
   return 'vor ' + Math.round(s/3600) + ' h';
 }
 
-function zeichne(d){
-  const r = d.runner, c = d.counts || {groups:{}};
-  let h = '';
+// ---- Menü ----
+var knoepfe = document.querySelectorAll('nav button');
+for (var i = 0; i < knoepfe.length; i++) {
+  knoepfe[i].addEventListener('click', function(){
+    var ziel = this.getAttribute('data-tab');
+    for (var j = 0; j < knoepfe.length; j++) knoepfe[j].classList.remove('aktiv');
+    this.classList.add('aktiv');
+    ['lage','kosten','schluessel'].forEach(function(t){ $('tab-'+t).hidden = (t !== ziel); });
+    if (ziel === 'schluessel') keysLaden();
+  });
+}
 
-  // Runner
-  h += '<div class="karte"><h2>Runner</h2>';
+// ---- Lage ----
+function zeichneLage(d){
+  var r = d.runner, c = d.counts || { groups:{} }, g = c.groups || {};
+  var h = '<div class="karte"><h2>Runner</h2>';
   if (!r) {
     h += '<div class="grau">Noch keine Meldung eingegangen.</div>';
   } else {
-    const alt = (Date.now() - new Date(r.at).getTime()) / 1000;
-    const frisch = alt < 180;
-    const laeuft = r.runner_laeuft;
-    const farbe = !frisch ? 'rot' : (laeuft ? 'gruen' : 'gelb');
-    const text  = !frisch ? 'Meldung veraltet' : (laeuft ? 'läuft' : 'pausiert');
+    var alt = (Date.now() - new Date(r.at).getTime())/1000;
+    var frisch = alt < 180;
+    var farbe = !frisch ? 'rot' : (r.runner_laeuft ? 'gruen' : 'gelb');
+    var text  = !frisch ? 'Meldung veraltet' : (r.runner_laeuft ? 'läuft' : 'pausiert');
     h += '<div class="zeile"><span>Zustand</span><b class="'+farbe+'">'+text+'</b></div>';
-    h += '<div class="zeile"><span>Modell</span><b>'+(r.modell||'—')+'</b></div>';
+    h += '<div class="zeile"><span>Modell</span><b>'+sicher(r.modell || '—')+'</b></div>';
     if (r.gesamt) {
-      const p = Math.min(100, 100*r.fertig/r.gesamt);
+      var p = Math.min(100, 100*r.fertig/r.gesamt);
       h += '<div class="balken"><i style="width:'+p.toFixed(1)+'%"></i></div>';
       h += '<div class="zeile"><span>Fortschritt</span><b>'+zahl(r.fertig)+' / '+zahl(r.gesamt)+' ('+p.toFixed(1)+' %)</b></div>';
     }
-    if (r.rate)   h += '<div class="zeile"><span>Tempo</span><b>'+r.rate+' /min</b></div>';
-    if (r.eta)    h += '<div class="zeile"><span>Restzeit</span><b>'+r.eta+'</b></div>';
-    if (r.fehler !== undefined) h += '<div class="zeile"><span>Fehler</span><b class="'+(r.fehler>0?'gelb':'')+'">'+zahl(r.fehler)+'</b></div>';
-    h += '<div class="zeile"><span>Fenster</span><b>'+(r.fenster_offen?'offen':'zu')+(r.freigabe?' (Freigabe)':'')+'</b></div>';
-    h += '<div class="zeile"><span>Letzte Meldung</span><b>'+alterText(r.at)+'</b></div>';
-    if (r.letzte_zeile) h += '<div class="zeile" style="display:block"><span>Protokoll</span><br><code>'+r.letzte_zeile.replace(/[<>&]/g,'')+'</code></div>';
+    if (r.rate) h += '<div class="zeile"><span>Tempo</span><b>'+r.rate+' /min</b></div>';
+    if (r.eta)  h += '<div class="zeile"><span>Restzeit</span><b>'+sicher(r.eta)+'</b></div>';
+    h += '<div class="zeile"><span>Fehler</span><b class="'+(r.fehler ? 'gelb':'')+'">'+zahl(r.fehler)+'</b></div>';
+    h += '<div class="zeile"><span>Fenster</span><b>'+(r.fenster_offen ? 'offen':'zu')+(r.freigabe ? ' (Freigabe)':'')+'</b></div>';
+    h += '<div class="zeile"><span>Letzte Meldung</span><b>'+alterTxt(r.at)+'</b></div>';
+    if (r.letzte_zeile) h += '<div class="fuss"><code>'+sicher(r.letzte_zeile)+'</code></div>';
   }
   h += '</div>';
 
-  // Bestand
-  h += '<div class="karte"><h2>Bestand in R2</h2>';
-  const namen = { dom_33:'Brandenburg · Oberfläche', dgm_33:'Brandenburg · Gelände',
-                  dom_32:'NRW · Oberfläche',        dgm_32:'NRW · Gelände',
-                  sonstige:'ohne Zone (alt)' };
-  const g = c.groups || {};
-  h += '<div class="gross">'+zahl(c.objects)+'</div><div class="sub">Kacheln &middot; '
-     + ((c.bytes||0)/1e9).toFixed(1).replace('.',',')+' GB</div>';
-  Object.keys(namen).forEach(k => {
-    if (g[k] !== undefined) {
-      const gb = (g[k].bytes/1e9).toFixed(1).replace('.',',');
-      h += '<div class="zeile"><span>'+namen[k]+'</span><b>'+zahl(g[k].n)+' <span class="grau">· '+gb+' GB</span></b></div>';
-    }
+  h += '<div class="karte"><h2>Bestand</h2>';
+  h += '<div class="gross">'+zahl(c.objects)+'</div><div class="sub">Kacheln · '+gbTxt(c.bytes||0)+'</div>';
+  var namen = { dom_33:'Brandenburg · Oberfläche', dgm_33:'Brandenburg · Gelände',
+                dom_32:'NRW · Oberfläche', dgm_32:'NRW · Gelände', sonstige:'ohne Zone (alt)' };
+  Object.keys(namen).forEach(function(k){
+    if (!g[k]) return;
+    var n = (typeof g[k] === 'object') ? g[k].n : g[k];
+    var b = (typeof g[k] === 'object') ? g[k].bytes : 0;
+    h += '<div class="zeile"><span>'+namen[k]+'</span><b>'+zahl(n)+(b ? ' <span class="grau">· '+gbTxt(b)+'</span>' : '')+'</b></div>';
   });
-  h += '<div class="zeile"><span>Stand der Zählung</span><b>'+alterText(new Date(c.at).toISOString())+'</b></div>';
+  h += '<div class="zeile"><span>Stand der Zählung</span><b>'+alterTxt(new Date(c.at).toISOString())+'</b></div>';
   h += '</div>';
-
-  h += kostenKarte(c, r);
-
-  $('inhalt').innerHTML = h;
+  $('lage').innerHTML = h;
   $('uhr').textContent = new Date().toLocaleTimeString('de-DE');
 }
 
-// Preise Cloudflare R2, Stand 09/2026 — vor einer Zusage an Kunden im
-// Dashboard gegenpruefen, Cloudflare aendert sie gelegentlich.
-const PREIS = { speicherProGbMonat: 0.015, freiGb: 10, schreibenProMio: 4.50, workersBezahlt: 5.00 };
-const KURS = 0.92;                         // grobe Umrechnung Dollar -> Euro
-const eur = (d) => (d*KURS).toFixed(2).replace('.',',') + ' €';
-
-function kostenKarte(c, r){
-  const gb = (c.bytes||0)/1e9;
-  const zahlbar = Math.max(0, gb - PREIS.freiGb);
-  const proMonat = zahlbar * PREIS.speicherProGbMonat;
-  const schnitt = c.objects ? c.bytes/c.objects : 0;
-
-  let h = '<div class="karte"><h2>Speicher und Kosten</h2>';
+// ---- Kosten ----
+function zeichneKosten(d){
+  var c = d.counts || {}, r = d.runner;
+  var gb = (c.bytes||0)/1e9, zahlbar = Math.max(0, gb - PREIS.freiGb);
+  var schnitt = c.objects ? c.bytes/c.objects : 0;
+  var h = '<div class="karte"><h2>Speicher</h2>';
+  h += '<div class="gross">'+eur(zahlbar*PREIS.gbMonat)+'</div><div class="sub">pro Monat, Stand jetzt</div>';
   h += '<div class="zeile"><span>Belegt</span><b>'+gb.toFixed(1).replace('.',',')+' GB</b></div>';
-  h += '<div class="zeile"><span>davon kostenpflichtig</span><b>'+zahlbar.toFixed(1).replace('.',',')+' GB <span class="grau">(10 GB frei)</span></b></div>';
+  h += '<div class="zeile"><span>Kostenpflichtig</span><b>'+zahlbar.toFixed(1).replace('.',',')+' GB <span class="grau">(10 frei)</span></b></div>';
   h += '<div class="zeile"><span>Ø je Kachel</span><b>'+(schnitt/1e6).toFixed(2).replace('.',',')+' MB</b></div>';
-  h += '<div class="zeile"><span>Speicher je Monat</span><b>'+eur(proMonat)+'</b></div>';
   h += '<div class="zeile"><span>Ausgehender Verkehr</span><b class="gruen">0 €</b></div>';
-
-  // Was der laufende Aufbau noch dazulegt
-  if (r && r.gesamt && r.fertig !== null && schnitt) {
-    const offen = Math.max(0, r.gesamt - r.fertig);
-    const dazu = offen * schnitt / 1e9;
-    const nachher = gb + dazu;
-    const nachherMonat = Math.max(0, nachher - PREIS.freiGb) * PREIS.speicherProGbMonat;
-    h += '<div class="zeile" style="border-top:1px solid #2c3036;margin-top:6px;padding-top:10px">'
-       + '<span>Noch offen ('+(r.modell||'Lauf')+')</span><b>'+zahl(offen)+' Kacheln · +'+dazu.toFixed(1).replace('.',',')+' GB</b></div>';
-    h += '<div class="zeile"><span>Danach belegt</span><b>'+nachher.toFixed(1).replace('.',',')+' GB</b></div>';
-    h += '<div class="zeile"><span>Danach je Monat</span><b>'+eur(nachherMonat)+'</b></div>';
-    // Schreibvorgaenge: je Kachel eine Ablage, Klasse A
-    h += '<div class="zeile"><span>Einmalig fürs Hochladen</span><b>'+eur(offen/1e6*PREIS.schreibenProMio)+'</b></div>';
-  }
-
-  // Ausblick: ganz Deutschland, beide Modelle
-  if (schnitt) {
-    const deutschlandKacheln = 357600 * 2;
-    const dGb = deutschlandKacheln * schnitt / 1e9;
-    h += '<div class="zeile" style="border-top:1px solid #2c3036;margin-top:6px;padding-top:10px">'
-       + '<span>Ganz Deutschland (DOM+DGM)</span><b>'+Math.round(dGb).toLocaleString('de-DE')+' GB</b></div>';
-    h += '<div class="zeile"><span>Das je Monat</span><b>'+eur(Math.max(0,dGb-PREIS.freiGb)*PREIS.speicherProGbMonat)+'</b></div>';
-  }
-
-  h += '<div class="zeile"><span>Workers, falls bezahlter Tarif</span><b>'+eur(PREIS.workersBezahlt)+' / Monat</b></div>';
-  h += '<div class="meta" style="color:#9aa0a6;font-size:12px;margin-top:8px">'
-     + 'Gerechnet mit '+PREIS.speicherProGbMonat.toFixed(3).replace('.',',')+' $ je GB und Monat, '
-     + 'Kurs '+KURS+'. Ausgehender Verkehr ist bei R2 kostenlos. Lesezugriffe sind hier nicht enthalten, '
-     + 'die fallen erst bei echter Nutzung ins Gewicht.</div>';
   h += '</div>';
-  return h;
-}
 
-async function laden(){
-  try {
-    const r = await fetch('/v1/status');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    zeichne(await r.json());
-    $('stand').textContent = '';
-  } catch(e) {
-    $('stand').textContent = 'Abruf fehlgeschlagen: ' + e.message;
+  if (r && r.gesamt && schnitt) {
+    var offen = Math.max(0, r.gesamt - r.fertig);
+    var dazu = offen*schnitt/1e9, nachher = gb + dazu;
+    h += '<div class="karte"><h2>Wenn der Lauf durch ist</h2>';
+    h += '<div class="zeile"><span>Noch offen</span><b>'+zahl(offen)+' Kacheln</b></div>';
+    h += '<div class="zeile"><span>Kommt dazu</span><b>+'+dazu.toFixed(1).replace('.',',')+' GB</b></div>';
+    h += '<div class="zeile"><span>Dann belegt</span><b>'+nachher.toFixed(1).replace('.',',')+' GB</b></div>';
+    h += '<div class="zeile"><span>Dann je Monat</span><b>'+eur(Math.max(0,nachher-PREIS.freiGb)*PREIS.gbMonat)+'</b></div>';
+    h += '<div class="zeile"><span>Einmalig fürs Hochladen</span><b>'+eur(offen/1e6*PREIS.schreibenMio)+'</b></div>';
+    h += '</div>';
   }
+
+  if (schnitt) {
+    var dGb = 357600*2*schnitt/1e9;
+    h += '<div class="karte"><h2>Ausblick</h2>';
+    h += '<div class="zeile"><span>Ganz Deutschland, DOM + DGM</span><b>'+zahl(Math.round(dGb))+' GB</b></div>';
+    h += '<div class="zeile"><span>Das je Monat</span><b>'+eur(Math.max(0,dGb-PREIS.freiGb)*PREIS.gbMonat)+'</b></div>';
+    h += '<div class="zeile"><span>Ein Bundesland im Schnitt</span><b>'+eur(Math.max(0,dGb/16)*PREIS.gbMonat)+' / Monat</b></div>';
+    h += '<div class="zeile trenner"><span>Workers, bezahlter Tarif</span><b>'+eur(PREIS.workers)+' / Monat</b></div>';
+    h += '<div class="fuss">Gerechnet mit '+PREIS.gbMonat+' $ je GB und Monat, Kurs '+KURS+'. '
+       + 'Lesezugriffe sind nicht enthalten, die fallen erst bei echter Kundennutzung an. '
+       + 'Preise gelegentlich im Dashboard gegenprüfen.</div>';
+    h += '</div>';
+  }
+  $('kosten').innerHTML = h;
 }
 
-function escape(t){ return String(t ?? '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
-
-async function keysLaden(){
-  try {
-    const r = await fetch('/v1/keys');
+// ---- Schlüssel ----
+function keysLaden(){
+  fetch('/v1/keys').then(function(r){
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const d = await r.json();
+    return r.json();
+  }).then(function(d){
     if (!d.keys.length) { $('keys').innerHTML = '<span class="grau">Noch keine Schlüssel.</span>'; return; }
-    $('keys').innerHTML = d.keys.map(k => {
-      const zustand = k.gesperrt ? '<b class="rot">gesperrt</b>'
-        : (k.ablauf && Date.parse(k.ablauf) < Date.now()) ? '<b class="gelb">abgelaufen</b>'
-        : '<b class="gruen">aktiv</b>';
-      const teile = [k.firma, k.kontakt, k.tier, k.origins ? 'nur ' + k.origins.join(', ') : null,
-                     k.ablauf ? 'bis ' + k.ablauf : null, k.notiz]
-                    .filter(Boolean).map(escape).join(' · ');
-      return '<div class="kbox">'
-        + '<div class="kopf"><span><b>' + escape(k.name || '(ohne Namen)') + '</b></span>' + zustand + '</div>'
-        + '<div class="schl">' + escape(k.key) + '</div>'
-        + (teile ? '<div class="meta">' + teile + '</div>' : '')
-        + '<button onclick="sperren(\'' + k.key + '\')">' + (k.gesperrt ? 'freigeben' : 'sperren') + '</button>'
-        + '<button onclick="loeschen(\'' + k.key + '\')">löschen</button>'
-        + '</div>';
-    }).join('');
-  } catch(e){ $('keys').innerHTML = '<span class="rot">Schlüssel laden fehlgeschlagen: ' + e.message + '</span>'; }
+    var h = '';
+    d.keys.forEach(function(k){
+      var abgelaufen = k.ablauf && Date.parse(k.ablauf) < Date.now();
+      var zustand = k.gesperrt ? '<b class="rot">gesperrt</b>'
+                  : abgelaufen ? '<b class="gelb">abgelaufen</b>' : '<b class="gruen">aktiv</b>';
+      var teile = [k.firma, k.kontakt, k.tier,
+                   k.origins ? 'nur ' + k.origins.join(', ') : null,
+                   k.ablauf ? 'bis ' + k.ablauf : null, k.notiz]
+                  .filter(Boolean).map(sicher).join(' · ');
+      h += '<div class="kbox"><div class="kopf"><span><b>'+sicher(k.name || '(ohne Namen)')+'</b></span>'+zustand+'</div>'
+         + '<div class="schl">'+sicher(k.key)+'</div>'
+         + (teile ? '<div class="meta">'+teile+'</div>' : '')
+         + '<div class="tasten">'
+         + '<button data-tat="sperren" data-key="'+sicher(k.key)+'">'+(k.gesperrt ? 'freigeben' : 'sperren')+'</button>'
+         + '<button data-tat="loeschen" data-key="'+sicher(k.key)+'">löschen</button>'
+         + '</div></div>';
+    });
+    $('keys').innerHTML = h;
+  }).catch(function(e){
+    $('keys').innerHTML = '<span class="rot">Schlüssel laden fehlgeschlagen: '+sicher(e.message)+'</span>';
+  });
 }
 
-async function sperren(key){
-  await fetch('/v1/keys?sperren=' + encodeURIComponent(key), {method:'POST'});
-  keysLaden();
-}
-async function loeschen(key){
-  if (!confirm('Schlüssel ' + key + ' endgültig löschen? Der Zugang ist danach sofort tot.')) return;
-  const r = await fetch('/v1/keys?key=' + encodeURIComponent(key), {method:'DELETE'});
-  if (!r.ok) alert('Löschen fehlgeschlagen: ' + (await r.text()));
-  keysLaden();
-}
+document.addEventListener('click', function(ev){
+  var b = ev.target.closest ? ev.target.closest('button[data-tat]') : null;
+  if (!b) return;
+  var key = b.getAttribute('data-key');
+  if (b.getAttribute('data-tat') === 'sperren') {
+    fetch('/v1/keys?sperren=' + encodeURIComponent(key), { method:'POST' }).then(keysLaden);
+  } else {
+    if (!confirm('Schlüssel ' + key + ' endgültig löschen? Der Zugang ist danach sofort tot.')) return;
+    fetch('/v1/keys?key=' + encodeURIComponent(key), { method:'DELETE' }).then(keysLaden);
+  }
+});
 
-$('f_anlegen').onclick = async () => {
-  const origins = $('f_origins').value.trim();
-  const koerper = {
+$('f_anlegen').addEventListener('click', function(){
+  var origins = $('f_origins').value.trim();
+  var koerper = {
     name: $('f_name').value.trim(), firma: $('f_firma').value.trim(),
     kontakt: $('f_kontakt').value.trim(), notiz: $('f_notiz').value.trim(),
     tier: $('f_tier').value, ablauf: $('f_ablauf').value || null,
-    origins: origins ? origins.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+    origins: origins ? origins.split(',').map(function(s){ return s.trim(); }).filter(Boolean) : undefined
   };
   if (!koerper.name) { alert('Name ist Pflicht'); return; }
-  const r = await fetch('/v1/keys', {method:'POST', headers:{'Content-Type':'application/json'},
-                                     body: JSON.stringify(koerper)});
-  const d = await r.json();
-  if (!r.ok) { $('f_ergebnis').innerHTML = '<span class="rot">' + escape(d.error) + '</span>'; return; }
-  $('f_ergebnis').innerHTML = '<div class="kbox"><div class="meta">Angelegt — jetzt kopieren, '
-    + 'später ist er nicht mehr im Klartext nötig:</div><div class="schl">' + escape(d.key) + '</div></div>';
-  ['f_name','f_firma','f_kontakt','f_notiz','f_origins'].forEach(i => $(i).value = '');
-  keysLaden();
-};
+  fetch('/v1/keys', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(koerper) })
+    .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, d:d }; }); })
+    .then(function(a){
+      if (!a.ok) { $('f_ergebnis').innerHTML = '<span class="rot">'+sicher(a.d.error)+'</span>'; return; }
+      $('f_ergebnis').innerHTML = '<div class="kbox"><div class="meta">Angelegt — jetzt kopieren:</div>'
+        + '<div class="schl">'+sicher(a.d.key)+'</div></div>';
+      ['f_name','f_firma','f_kontakt','f_notiz','f_origins'].forEach(function(i){ $(i).value = ''; });
+      keysLaden();
+    });
+});
 
-laden(); keysLaden();
+// ---- Laden ----
+function laden(){
+  fetch('/v1/status').then(function(r){
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function(d){
+    letzteDaten = d;
+    zeichneLage(d); zeichneKosten(d);
+    $('stand').textContent = '';
+  }).catch(function(e){
+    $('stand').textContent = 'Abruf fehlgeschlagen: ' + e.message;
+  });
+}
+laden();
 setInterval(laden, 30000);
 </script>
 </body>
