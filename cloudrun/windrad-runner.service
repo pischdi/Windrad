@@ -1,0 +1,26 @@
+[Unit]
+Description=Windrad Kachel-Runner (Zeitfenster-Waechter)
+Documentation=file:///home/pischdi/.openclaw/workspace/projects/windrad/cloudrun/window_guard.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pischdi/.openclaw/workspace/projects/windrad/cloudrun
+ExecStart=/home/pischdi/.openclaw/workspace/projects/windrad/cloudrun/window_guard.sh fg
+
+# Der Waechter faengt SIGTERM ab und stoppt den Runner sauber (laufende Downloads
+# werden zu Ende gebracht, danach Resume beim naechsten Start). Das darf dauern —
+# stop_runner() wartet bis zu 120 s, bevor es haerter wird.
+KillSignal=SIGTERM
+TimeoutStopSec=180
+
+Restart=always
+RestartSec=10
+
+# Nicht endlos neu starten, wenn etwas grundsaetzlich kaputt ist.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=default.target

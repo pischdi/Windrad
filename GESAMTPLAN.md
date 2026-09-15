@@ -204,3 +204,28 @@ Wer später doch UTM braucht, bekommt GeoPackage oder CSV dazu. Erst mal nicht b
   gehört dann in Doku und Export.
 - **Foto-KI:** vertagt (2026-09-13). Bleibt vorerst Teil der AR-App, Entscheidung über
   einen eigenen bezahlten Dienst später.
+
+## Dauerlauf als Systemdienst (seit 15.09.2026)
+
+Der Kachel-Runner hing bis dahin als Kindprozess an der Agenten-Sitzung. Am 15.09. um
+00:39 hat ihn eine Konfigurationsänderung mitgerissen — 6.599 Kacheln blieben liegen.
+`setsid nohup` hat unter WSL2 nicht getragen.
+
+Seitdem läuft der Zeitfenster-Wächter als **systemd-Benutzerdienst**:
+
+    cp cloudrun/windrad-runner.service ~/.config/systemd/user/
+    systemctl --user daemon-reload
+    systemctl --user enable --now windrad-runner.service
+
+    systemctl --user status windrad-runner.service    # Zustand
+    systemctl --user stop windrad-runner.service      # sauber anhalten
+    journalctl --user -u windrad-runner.service -f    # mitlesen
+
+Eigenschaften:
+- `Restart=always` — überlebt Abstürze, nachgewiesen gegen SIGKILL
+- `TimeoutStopSec=180` — der Wächter darf laufende Downloads zu Ende bringen (`stop_runner`
+  wartet bis zu 120 s), bevor systemd härter wird
+- `WantedBy=default.target` plus aktiviertes Linger — startet nach einem Neustart der
+  Maschine von selbst, ohne Anmeldung
+- Das Zeitfenster (Mo–Fr 18:00–07:00, Wochenende durchgehend) und die Datei `.freigabe`
+  gelten unverändert; der Dienst ändert nur, **wer** den Wächter am Leben hält.
