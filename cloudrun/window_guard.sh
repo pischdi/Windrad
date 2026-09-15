@@ -74,6 +74,7 @@ stop_runner() {
 }
 
 loop() {
+  tick=0
   echo $$ > "$GUARD_PID_FILE"
   log "Waechter gestartet (PID $$) · Fenster: Mo-Fr 18:00-07:00, Sa+So durchgehend"
   trap 'log "Waechter beendet"; stop_runner; rm -f "$GUARD_PID_FILE"; exit 0' TERM INT
@@ -85,7 +86,17 @@ loop() {
     fi
     # Lagemeldung fuer die Admin-Seite (fehlschlagen darf sie, ohne dass der
     # Waechter stehen bleibt — der Runner ist wichtiger als die Anzeige).
-    [ -x ./status_push.sh ] && ./status_push.sh >/dev/null 2>&1 || true
+    #
+    # Sparsam schreiben: Jede Meldung ist ein KV-Schreibvorgang, und davon gibt
+    # es im kostenlosen Kontingent nur 1.000 am Tag. Minuetlich zu schreiben
+    # waren 1.440 — am 15.09.2026 kam dafuer die 50-Prozent-Warnung von
+    # Cloudflare. Jetzt: alle 5 Minuten waehrend der Runner laeuft, sonst alle
+    # 15 Minuten. Macht rund 200 Schreibvorgaenge am Tag.
+    tick=$((tick + 1))
+    if runner_pid >/dev/null; then push_alle=5; else push_alle=15; fi
+    if [ $((tick % push_alle)) -eq 0 ]; then
+      [ -x ./status_push.sh ] && ./status_push.sh >/dev/null 2>&1 || true
+    fi
     sleep "$CHECK_INTERVAL"
   done
 }
