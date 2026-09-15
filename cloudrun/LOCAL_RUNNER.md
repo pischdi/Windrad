@@ -61,9 +61,39 @@ Beides ist sauber — Resume beim nächsten Start.
 | `WORKERS` | `24` | Parallele Downloads. Höher = mehr Last aufs Portal (Vorsicht bei Drosselung). |
 | `AREA_BBOX` | — | Nur ein Rechteck `süd,west,nord,ost` (lat/lon) statt ganzem Land. |
 | `UPLOAD_GZ` | `1` | Zusätzlich `.bin.gz` hochladen (der Worker bevorzugt gz). |
+| `FORCE_LIST` | — | Datei mit Kacheln, die **trotz** Bestand neu gerechnet werden. |
+| `FORCE_LIST_<PRESET>` | — | Wie oben, aber nur für ein Modell (z. B. `FORCE_LIST_NRW_DOM`). Schlägt `FORCE_LIST`. |
+| `DRY_RUN` | `0` | Nur zählen und melden — kein Download, kein Upload. Zum Prüfen der Konfiguration. |
 
 **Empfohlener erster Lauf:** `MODELS=BB_DOM` (Brandenburg-Oberfläche für die Losspinne).
 Danach bei Bedarf `MODELS=BB_DGM` für die Gefälle-/Aufstellflächen-Prüfung nachziehen.
+
+### Kacheln erzwingen (Zwangsliste)
+
+Normalerweise überspringt der Runner alles, was schon in R2 liegt. Wenn Kacheln im
+Bestand *falsch* sind — etwa die vor der Dezimeter-Umstellung gerechneten NRW-Kacheln
+über 655,35 m —, hilft das nicht weiter: sie liegen ja da. Eine Zwangsliste nimmt sie
+vor dem Abgleich aus dem Bestand, danach greift die normale Resume-Logik und
+überschreibt sie.
+
+Format je Zeile `<x>_<y>` (UTM-Kilometer), alles ab `#` ist Kommentar:
+```
+# NRW-Kacheln über 600 m
+298_5604  # 633
+299_5604  # 639
+```
+
+Relative Pfade gelten ab dem Verzeichnis von `run_local.py`. Fehlt die Datei, bricht
+der Runner sofort beim Start ab — ein Tippfehler im Pfad soll nicht als "nichts zu tun"
+durchgehen.
+
+**Modellbezogen statt global benennen.** Die Kilometer-Nummern von UTM-Zone 32 (NRW)
+und 33 (BB, SN) liegen im selben Zahlenraum und überlappen sich tatsächlich. Ein
+globales `FORCE_LIST` wird darum bei *jedem* Modell des Laufs geprüft und kann
+anderswo versehentlich Kacheln treffen. `FORCE_LIST_NRW_DOM` kann das nicht.
+
+Vor einem erzwungenen Lauf lohnt `DRY_RUN=1`: der Runner meldet, wie viele Einträge
+die Liste hat und wie viele davon wirklich Mehrarbeit sind, und hört dann auf.
 
 ---
 
