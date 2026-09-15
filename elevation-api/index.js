@@ -5,7 +5,12 @@
  * ========================================
  *
  * Höhendaten-Dienst auf Basis der bestehenden Brandenburg-ALS-Tiles
- * (Uint16-Höhengrid, 1000x1000, 1m-Auflösung, Werte in cm, EPSG:25833).
+ * (Uint16-Höhengrid, 1000x1000, 1m-Auflösung, EPSG:25833).
+ *
+ * Einheit der Kachelwerte: Uint16 in Zentimetern reicht nur bis 655,35 m und
+ * lief im Mittelgebirge still über. Neue Kacheln werden deshalb in Dezimetern
+ * geschrieben (bis 6553,5 m). Die Einheit reist als R2-customMetadata `unit`
+ * je Kachel mit; fehlt sie, gilt `cm` — so bleibt der Altbestand korrekt.
  *
  * Endpunkte:
  *   GET /v1/point?lat=<>&lon=<>          → Höhe an einem Punkt (bilinear interpoliert)
@@ -26,6 +31,12 @@ import LOSSPINNE_SITES from './losspinne_sites.json';
 const VERSION = '1.0.0-mvp';
 const TILE_SIZE = 1000;          // Meter pro Kachelkante = Gridzellen pro Kante
 const PUBLIC_R2 = 'https://pub-a0c3ff1c12374435997e4d3bf4847b65.r2.dev';
+// Kachel-Einheiten: Teiler vom gespeicherten Uint16 zur Höhe in Metern.
+// `cm` ist der Altbestand (Decke 655,35 m), `dm` der neue Stand (6553,5 m).
+const UNIT_DIVISOR = { cm: 100.0, dm: 10.0 };
+const DEFAULT_UNIT = 'cm';       // Kachel ohne Metadatum => Altbestand => cm
+const normUnit = (u) => (u && Object.hasOwn(UNIT_DIVISOR, u) ? u : DEFAULT_UNIT);
+
 const DEFAULT_SAMPLES = 200;     // Stützpunkte für Profil/LoS (wie Frontend-CONFIG)
 const MAX_SAMPLES = 1000;        // Obergrenze, begrenzt Tile-Zugriffe pro Request
 const EYE_HEIGHT = 1.7;          // Standard-Augenhöhe Beobachter (m)
@@ -36,6 +47,10 @@ const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
+  // Ohne diese Zeile kommt X-Tile-Unit im Browser nicht an (CORS blendet
+  // alles aus, was nicht ausdrücklich freigegeben ist) — das Frontend würde
+  // dann stillschweigend auf cm zurückfallen und Dezimeter-Kacheln zehnteln.
+  'Access-Control-Expose-Headers': 'X-Tile-Unit',
 };
 
 export default {
@@ -750,14 +765,22 @@ async function cellElevation(zone, x, y, env, cache, model = 'dom') {
   const localY = y - tileY * TILE_SIZE;
   if (localX < 0 || localX >= TILE_SIZE || localY < 0 || localY >= TILE_SIZE) return null;
 
-  const heightCm = tile[localY * TILE_SIZE + localX];
-  if (heightCm === 0) return null; // nodata
-  return heightCm / 100.0;
+  const raw = tile.heights[localY * TILE_SIZE + localX];
+  if (raw === 0) return null; // nodata
+  // Teiler kommt aus der Kachel selbst, nicht aus einer Annahme: alte Kacheln
+  // sind cm, neue dm. Ein fest verdrahtetes /100 ergäbe hier einen Faktor-10-
+  // Fehler, der wie eine plausible Höhe aussieht.
+  return raw / UNIT_DIVISOR[tile.unit];
 }
 
 /**
- * Lädt eine Kachel als Uint16Array (mit Request-lokalem Cache).
- * Liefert null, wenn die Kachel nicht existiert (außerhalb der Abdeckung).
+ * Lädt eine Kachel als { heights: Uint16Array, unit: 'cm'|'dm' } (mit
+ * Request-lokalem Cache). Liefert null, wenn die Kachel nicht existiert
+ * (außerhalb der Abdeckung).
+ *
+ * Die Einheit steht als customMetadata `unit` am R2-Objekt, das die Bytes
+ * geliefert hat (also ggf. am `.gz`). Fehlt sie — gesamter Altbestand und der
+ * öffentliche Fallback, der keine Metadaten kennt — gilt cm.
  *
  * Der Cache hält das Promise (nicht erst den aufgelösten Wert), damit
  * gleichzeitige Lookups derselben Kachel (z.B. die 4 bilinearen Ecken)
@@ -778,6 +801,7 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
   const promise = (async () => {
     for (const k of candidates) {
       let buffer = null;
+      let unit = DEFAULT_UNIT;
 
       // 1) Bevorzugt: R2-Binding. Erst die unkomprimierte Kachel, dann die
       //    gepackte — im Bucket liegt (Stand 09/2026) nur noch `.bin.gz`,
@@ -786,9 +810,13 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
         const obj = await env.TILES.get(k);
         if (obj) {
           buffer = await obj.arrayBuffer();
+          unit = normUnit(obj.customMetadata?.unit);
         } else {
           const gz = await env.TILES.get(`${k}.gz`);
-          if (gz) buffer = await gunzip(gz.body);
+          if (gz) {
+            buffer = await gunzip(gz.body);
+            unit = normUnit(gz.customMetadata?.unit);
+          }
         }
       }
       // 2) Fallback: öffentliche R2-URL — nur noch, wenn ausdrücklich erlaubt.
@@ -803,7 +831,7 @@ function loadTile(zone, tileX, tileY, env, cache, model = 'dom') {
       if (buffer.byteLength !== TILE_SIZE * TILE_SIZE * 2) {
         throw apiError(`Invalid tile size for ${k}: ${buffer.byteLength} bytes`, 500, 'BAD_TILE');
       }
-      return new Uint16Array(buffer);
+      return { heights: new Uint16Array(buffer), unit };
     }
     return null;
   })();
@@ -1025,11 +1053,25 @@ async function handleTilePut(request, url, env) {
     return json({ error: 'Erwartet wird gzip (Magic 1f8b)', code: 'NOT_GZIP' }, 400);
   }
 
+  // Einheit der Werte. Ohne Angabe cm — damit bleiben Altaufrufer gültig, die
+  // den Parameter nicht kennen. Die Pipeline schickt seit der Umstellung dm.
+  const rawUnit = url.searchParams.get('unit');
+  if (rawUnit !== null && !Object.hasOwn(UNIT_DIVISOR, rawUnit)) {
+    return json(
+      { error: `unit muss ${Object.keys(UNIT_DIVISOR).join(' oder ')} sein`, code: 'BAD_REQUEST' },
+      400
+    );
+  }
+  const unit = normUnit(rawUnit);
+
   const key = `${model === 'dgm' ? 'dgm' : 'tile'}_${zone}_${x}_${y}.bin.gz`;
   await env.TILES.put(key, body, {
     httpMetadata: { contentType: 'application/gzip' },
+    // Reist mit der Kachel: der Leser erfährt die Einheit aus dem Objekt,
+    // nicht aus einer globalen Annahme. So dürfen cm und dm nebeneinander liegen.
+    customMetadata: { unit },
   });
-  return json({ stored: key, bytes: body.byteLength });
+  return json({ stored: key, bytes: body.byteLength, unit });
 }
 
 /**
@@ -1046,9 +1088,13 @@ async function gunzip(stream) {
 /**
  * GET /v1/tile?zone=33&x=459&y=5722[&model=dom|dgm]
  *
- * Liefert eine komplette Höhenkachel als rohe Bytes (Uint16, Höhe in cm,
- * 1000×1000 Zellen = 2.000.000 Byte). Gedacht für Anwendungen, die selbst
- * rechnen — allen voran die AR-App, die ihr Höhenprofil im Browser bildet.
+ * Liefert eine komplette Höhenkachel als rohe Bytes (Uint16, 1000×1000 Zellen
+ * = 2.000.000 Byte). Gedacht für Anwendungen, die selbst rechnen — allen voran
+ * die AR-App, die ihr Höhenprofil im Browser bildet.
+ *
+ * Die Einheit der Werte steht in der Kopfzeile `X-Tile-Unit` (`cm` oder `dm`).
+ * Wer sie ignoriert und fest durch 100 teilt, liegt bei neuen Kacheln um den
+ * Faktor 10 daneben.
  *
  * Damit gibt es keinen Grund mehr, den R2-Bucket öffentlich zu stellen:
  * Auch Kachelzugriffe laufen jetzt über Schlüssel, Limit und Herkunftsprüfung.
@@ -1068,18 +1114,19 @@ async function handleTile(url, env) {
     return json({ error: 'zone must be 32 or 33', code: 'BAD_REQUEST' }, 400);
   }
 
-  const heights = await loadTile(zone, x, y, env, new Map(), model);
-  if (!heights) {
+  const tile = await loadTile(zone, x, y, env, new Map(), model);
+  if (!tile) {
     return json(
       { error: `Tile ${model}_${zone}_${x}_${y} not processed yet`, code: 'OUT_OF_COVERAGE' },
       404
     );
   }
 
-  return new Response(heights.buffer, {
+  return new Response(tile.heights.buffer, {
     headers: {
       ...CORS,
       'Content-Type': 'application/octet-stream',
+      'X-Tile-Unit': tile.unit,
       'Content-Disposition': `inline; filename="${model}_${zone}_${x}_${y}.bin"`,
       // Kacheln ändern sich nur bei einer Neubefliegung, also lange zwischenspeichern.
       'Cache-Control': 'public, max-age=86400, immutable',
@@ -1257,8 +1304,13 @@ function buildOpenApi(origin) {
           summary: 'Rohe Höhenkachel (Schlüssel erforderlich)',
           description:
             'Liefert eine komplette 1-km-Kachel als rohe Bytes: 1000 × 1000 Zellen, '
-            + 'je Zelle ein Uint16 (Höhe in Zentimetern, Little Endian), also exakt '
-            + '2.000.000 Byte. Gedacht für Anwendungen, die selbst rechnen. '
+            + 'je Zelle ein Uint16 (Little Endian), also exakt 2.000.000 Byte. '
+            + 'Gedacht für Anwendungen, die selbst rechnen. '
+            + 'Die **Einheit** der Werte steht in der Antwort-Kopfzeile `X-Tile-Unit`: '
+            + '`dm` (Dezimeter, Teiler 10) für neu gerechnete Kacheln, `cm` '
+            + '(Zentimeter, Teiler 100) für den Altbestand. Fehlt die Kopfzeile, gilt '
+            + '`cm`. Hintergrund: Uint16 in Zentimetern endet bei 655,35 m und lief im '
+            + 'Mittelgebirge über; Dezimeter reichen bis 6553,5 m. '
             + '**Dieser Endpunkt verlangt immer einen API-Key** — anders als die '
             + 'Rechen-Endpunkte, die anonym mit kleinem Limit nutzbar sind.',
           security: [{ ApiKeyAuth: [] }],
@@ -1270,7 +1322,16 @@ function buildOpenApi(origin) {
             apiKeyHeader,
           ],
           responses: {
-            200: { description: 'Kachel', content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } },
+            200: {
+              description: 'Kachel',
+              headers: {
+                'X-Tile-Unit': {
+                  description: 'Einheit der Uint16-Werte: "dm" (Teiler 10) oder "cm" (Teiler 100)',
+                  schema: { type: 'string', enum: ['cm', 'dm'] },
+                },
+              },
+              content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } },
+            },
             ...errorResponses,
           },
         },

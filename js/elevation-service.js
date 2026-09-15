@@ -99,9 +99,9 @@ class ElevationService {
             // Grid-Index (1000×1000 Grid)
             const index = localY * 1000 + localX;
 
-            // Höhe aus Tile extrahieren
-            const heightCm = tile[index];
-            const heightM = heightCm / 100.0;
+            // Höhe aus Tile extrahieren. Der Teiler kommt aus der Kachel
+            // (cm = 100, dm = 10), nicht aus einer festen Annahme.
+            const heightM = tile.heights[index] / tile.divisor;
 
             log(`Elevation @ (${x.toFixed(0)}, ${y.toFixed(0)}): ${heightM.toFixed(2)}m`);
 
@@ -143,22 +143,31 @@ class ElevationService {
             throw new Error(`Tile request failed (${response.status}): ${tileKey}`);
         }
 
+        // Einheit der Werte: Uint16 in Zentimetern endet bei 655,35 m, deshalb
+        // werden neue Kacheln in Dezimetern geschrieben. Welche Einheit gilt,
+        // sagt der Server je Kachel über X-Tile-Unit. Fehlt die Kopfzeile
+        // (Altbestand oder alter Worker), ist es cm.
+        const unit = (response.headers.get('X-Tile-Unit') || 'cm').toLowerCase();
+        const divisor = unit === 'dm' ? 10.0 : 100.0;
+
         // Read as ArrayBuffer
         const arrayBuffer = await response.arrayBuffer();
 
-        // Decode as Uint16Array (heights in cm)
+        // Decode as Uint16Array (Rohwerte in der oben ermittelten Einheit)
         const heights = new Uint16Array(arrayBuffer);
 
         if (heights.length !== 1000 * 1000) {
             throw new Error(`Invalid tile size: ${heights.length} (expected 1000000)`);
         }
 
+        const tile = { heights, divisor, unit };
+
         // Cache tile
-        this.tileCache.set(tileKey, heights);
+        this.tileCache.set(tileKey, tile);
 
-        log(`Tile loaded: ${tileKey} (${(arrayBuffer.byteLength / 1024).toFixed(0)} KB)`);
+        log(`Tile loaded: ${tileKey} (${(arrayBuffer.byteLength / 1024).toFixed(0)} KB, Einheit ${unit})`);
 
-        return heights;
+        return tile;
     }
 
     /**

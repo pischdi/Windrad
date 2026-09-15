@@ -18,7 +18,9 @@ from botocore.config import Config
 
 TILE_SIZE = 1000       # Meter pro Kachel
 GRID = 1000            # Zellen pro Kante -> 1 m Auflösung
-MAX_CM = 65535         # Uint16-Decke: 655,35 m ü. NN (siehe make_grid)
+UNIT = 'dm'            # Einheit der Kachelwerte; reist als Metadatum mit (siehe upload_via_api)
+PER_METER = 10.0       # Dezimeter je Meter
+MAX_RAW = 65535        # Uint16-Decke: 6553,5 m ü. NN (siehe make_grid)
 
 # Bundesland x Produkt. kind='dom' (Oberfläche, Sichtlinien) / 'dgm' (Gelände, Gefälle).
 #
@@ -203,7 +205,7 @@ def list_done(s3, bucket, preset):
 
 
 def make_grid(tif_bytes, tx, ty):
-    """GeoTIFF -> byte-kompatibles Uint16-cm-Grid (1000x1000, row0=Süden, nodata=0)."""
+    """GeoTIFF -> byte-kompatibles Uint16-dm-Grid (1000x1000, row0=Süden, nodata=0)."""
     with rasterio.open(io.BytesIO(tif_bytes)) as src:
         dst = np.zeros((GRID, GRID), dtype=np.float32)
         dst_transform = from_origin(tx * TILE_SIZE, (ty + 1) * TILE_SIZE,
@@ -217,14 +219,17 @@ def make_grid(tif_bytes, tx, ty):
     dst = np.flipud(dst)                  # GeoTIFF north-up -> row0=Süden
     dst[~np.isfinite(dst)] = 0.0
     dst[dst < 0] = 0.0
-    cm = dst * 100.0
-    # Uint16 in cm endet bei 655,35 m. Ohne Deckel klappt numpy stillschweigend um
-    # (1214,47 m -> 121447 cm -> 55911 cm -> 559,11 m); der Fehler sieht dann wie
-    # eine plausible Höhe aus und fällt nicht auf. Lieber sichtbar anschlagen als
-    # falsch aussehen. Betrifft alles oberhalb 655 m, also Erzgebirge, Harz,
-    # Rothaargebirge, Alpen — Brandenburg (max 201 m) bleibt unberührt.
-    np.clip(cm, 0, MAX_CM, out=cm)
-    return cm.astype('<u2')               # cm, little-endian Uint16
+    raw = dst * PER_METER
+    # Einheit ist Dezimeter (10 cm Schrittweite): Uint16 reicht damit bis
+    # 6553,5 m und deckt ganz Deutschland ab — die Zugspitze liegt bei 2962 m.
+    #
+    # Vorher galten Zentimeter, und die endeten bei 655,35 m. Darüber klappte
+    # numpy stillschweigend um (der Langenberg in NRW, 843 m, kam als 188,38 m
+    # aus der API); der Fehler sah wie eine plausible Höhe aus und fiel nicht
+    # auf. Der Deckel bleibt als Sicherheitsnetz stehen, greift jetzt aber
+    # nirgends in Deutschland mehr.
+    np.clip(raw, 0, MAX_RAW, out=raw)
+    return raw.astype('<u2')              # dm, little-endian Uint16
 
 
 def _download(url, retries=3):
@@ -249,8 +254,11 @@ def upload_via_api(preset, tx, ty, gz_bytes):
     """
     p = PRESETS[preset]
     base_url = os.environ['UPLOAD_URL'].rstrip('/')
+    # `unit` muss mit: der Worker hängt sie als customMetadata an das R2-Objekt,
+    # und jeder Leser holt den Teiler von dort. Ohne den Parameter würde die
+    # Kachel als cm gelten und um den Faktor 10 zu niedrig gelesen.
     url = (f"{base_url}/v1/tile?zone={p['zone']}&x={tx}&y={ty}"
-           f"&model={p['kind']}")
+           f"&model={p['kind']}&unit={UNIT}")
     last = None
     for i in range(4):
         try:
@@ -299,12 +307,17 @@ def process_source(s3, bucket, preset, fname, targets, upload_gz=True):
             upload_via_api(preset, tx, ty, gzip.compress(raw))
             continue
 
+        # Metadata={'unit': …} landet in R2 als customMetadata und ist damit
+        # dasselbe Feld, das der Worker beim API-Weg setzt und beim Lesen
+        # auswertet. Fehlt es, gilt die Kachel als cm — also hier nicht vergessen.
         base = f"{key_prefix(p['kind'])}_{p['zone']}_{tx}_{ty}"
         s3.put_object(Bucket=bucket, Key=base + '.bin', Body=raw,
-                      ContentType='application/octet-stream')
+                      ContentType='application/octet-stream',
+                      Metadata={'unit': UNIT})
         if upload_gz:
             s3.put_object(Bucket=bucket, Key=base + '.bin.gz', Body=gzip.compress(raw),
-                          ContentType='application/gzip')
+                          ContentType='application/gzip',
+                          Metadata={'unit': UNIT})
 
 
 def process_tile(s3, bucket, preset, tx, ty, fname, upload_gz=True):
